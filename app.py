@@ -7,7 +7,7 @@ import openpyxl
 import pandas as pd
 
 from models import Card
-from scraper import price_cards
+from scraper import price_cards, search_tcgplayer
 from stickers import generate_sticker_pdf, sticker_count, labels_per_page, LABEL_FORMATS
 from db import (
     load_all_cards,
@@ -116,22 +116,35 @@ with st.expander("Add Cards"):
     tab_manual, tab_excel = st.tabs(["Manual", "Excel Import"])
 
     with tab_manual:
-        with st.form("add_card_form", clear_on_submit=True):
-            fc1, fc2, fc3 = st.columns([3, 2, 1])
-            with fc1:
-                new_name = st.text_input("Card Name *")
-            with fc2:
-                new_number = st.text_input("Card Number")
-            with fc3:
-                new_qty = st.number_input("Qty", min_value=1, value=1, step=1)
+        fc1, fc2, fc3 = st.columns([3, 2, 1])
+        with fc1:
+            new_name = st.text_input("Card Name *")
+        with fc2:
+            new_number = st.text_input("Card Number")
+        with fc3:
+            new_qty = st.number_input("Qty", min_value=1, value=1, step=1)
 
-            if st.form_submit_button("Add Card", type="primary"):
+        btn1, btn2 = st.columns(2)
+        with btn1:
+            if st.button("Add Card", type="primary"):
                 if new_name.strip():
                     add_card(Card(name=new_name.strip(), number=new_number.strip(), quantity=new_qty))
                     st.toast(f"Added {new_name.strip()}")
                     st.rerun()
                 else:
                     st.error("Card name is required.")
+        with btn2:
+            if st.button("Check Price"):
+                if new_name.strip():
+                    test_card = Card(name=new_name.strip(), number=new_number.strip())
+                    with st.spinner(f"Looking up {test_card.name}..."):
+                        price, url = search_tcgplayer(test_card)
+                    if price is not None:
+                        st.success(f"**{test_card.name}** — ${price:.2f}  [{url}]({url})" if url else f"**{test_card.name}** — ${price:.2f}")
+                    else:
+                        st.warning(f"No match found for **{test_card.name}** {test_card.number}")
+                else:
+                    st.error("Enter a card name first.")
 
     with tab_excel:
         uploaded = st.file_uploader("Upload spreadsheet (.xlsx)", type=["xlsx"], key="import_xlsx")
@@ -197,12 +210,14 @@ if cards:
         editor_df,
         use_container_width=True,
         num_rows="dynamic",
-        disabled=["Name", "Number", "Market Price", "Total Value", "TCGPlayer URL"],
+        disabled=["Market Price", "Total Value", "TCGPlayer URL"],
         column_config={
+            "Name": st.column_config.TextColumn("Name"),
+            "Number": st.column_config.TextColumn("Number"),
+            "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
             "Market Price": st.column_config.NumberColumn("Market Price", format="$%.2f"),
             "Total Value": st.column_config.NumberColumn("Total Value", format="$%.2f"),
             "TCGPlayer URL": st.column_config.LinkColumn("TCGPlayer URL"),
-            "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
         },
         key="inventory_editor",
     )

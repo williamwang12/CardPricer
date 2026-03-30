@@ -155,7 +155,8 @@ def save_edits(
     num_updated = 0
     num_deleted = 0
 
-    # Handle edits (qty changes)
+    # Handle edits (qty, name, number changes)
+    col_to_field = {"Name": "name", "Number": "number", "Qty": "quantity"}
     for idx_str, changes in edited_rows.items():
         idx = int(idx_str)
         if idx >= len(original_cards):
@@ -164,16 +165,23 @@ def save_edits(
         if card.id is None:
             continue
 
+        # Check for qty=0 → delete
         new_qty = changes.get("Qty")
-        if new_qty is not None:
-            new_qty = int(new_qty)
-            if new_qty <= 0:
-                # Treat qty=0 as delete
-                delete_cards([card.id])
-                num_deleted += 1
-            else:
-                update_card(card.id, quantity=new_qty)
-                num_updated += 1
+        if new_qty is not None and int(new_qty) <= 0:
+            delete_cards([card.id])
+            num_deleted += 1
+            continue
+
+        # Build update dict from changed fields
+        updates = {}
+        for col, field in col_to_field.items():
+            if col in changes:
+                val = changes[col]
+                updates[field] = int(val) if col == "Qty" else str(val).strip()
+
+        if updates:
+            update_card(card.id, **updates)
+            num_updated += 1
 
     # Handle row deletions
     ids_to_delete = []
