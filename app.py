@@ -15,6 +15,7 @@ from db import (
     replace_all_cards,
     update_prices,
     save_edits,
+    delete_cards,
     seed_from_excel,
     card_count,
 )
@@ -132,25 +133,11 @@ with st.expander("Add Cards"):
         with fc3:
             new_qty = st.number_input("Qty", min_value=1, value=1, step=1, key=f"new_qty_{fk}")
 
+        # Manual price override
+        manual_price = st.number_input("Manual Price ($)", min_value=0.0, value=0.0, step=0.01,
+                                       format="%.2f", key=f"manual_price_{fk}")
+
         btn1, btn2 = st.columns(2)
-        with btn1:
-            if st.button("Add Card", type="primary"):
-                if new_name.strip():
-                    card = Card(
-                        name=new_name.strip(),
-                        number=new_number.strip(),
-                        quantity=new_qty,
-                        market_price=st.session_state.checked_price,
-                        tcgplayer_url=st.session_state.checked_url,
-                    )
-                    add_card(card)
-                    st.toast(f"Added {new_name.strip()}")
-                    st.session_state.checked_price = None
-                    st.session_state.checked_url = None
-                    st.session_state.add_form_key += 1
-                    st.rerun()
-                else:
-                    st.error("Card name is required.")
         with btn2:
             if st.button("Check Price"):
                 if new_name.strip():
@@ -165,6 +152,42 @@ with st.expander("Add Cards"):
                         st.warning(f"No match found for **{test_card.name}** {test_card.number}")
                 else:
                     st.error("Enter a card name first.")
+
+        # Show checkbox to include checked price (only after a successful check)
+        include_checked = False
+        if st.session_state.checked_price is not None:
+            include_checked = st.checkbox(
+                f"Include TCGPlayer price (${st.session_state.checked_price:.2f})",
+                value=True, key=f"include_price_{fk}",
+            )
+
+        with btn1:
+            if st.button("Add Card", type="primary"):
+                if new_name.strip():
+                    # Determine price: manual override > checked price > None
+                    price = None
+                    url = None
+                    if manual_price > 0:
+                        price = round(manual_price, 2)
+                    elif include_checked:
+                        price = st.session_state.checked_price
+                        url = st.session_state.checked_url
+
+                    card = Card(
+                        name=new_name.strip(),
+                        number=new_number.strip(),
+                        quantity=new_qty,
+                        market_price=price,
+                        tcgplayer_url=url,
+                    )
+                    add_card(card)
+                    st.toast(f"Added {new_name.strip()}")
+                    st.session_state.checked_price = None
+                    st.session_state.checked_url = None
+                    st.session_state.add_form_key += 1
+                    st.rerun()
+                else:
+                    st.error("Card name is required.")
 
     with tab_excel:
         uploaded = st.file_uploader("Upload spreadsheet (.xlsx)", type=["xlsx"], key="import_xlsx")
@@ -213,10 +236,11 @@ with st.expander("Add Cards"):
 st.subheader("Inventory")
 
 if cards:
-    # Build DataFrame for the data editor
+    # Build DataFrame for the data editor with a Delete checkbox
     editor_data = []
     for c in cards:
         editor_data.append({
+            "Delete": False,
             "Name": c.name,
             "Number": c.number,
             "Qty": c.quantity,
@@ -229,9 +253,9 @@ if cards:
     edited = st.data_editor(
         editor_df,
         use_container_width=True,
-        num_rows="dynamic",
         disabled=["Market Price", "Total Value", "TCGPlayer URL"],
         column_config={
+            "Delete": st.column_config.CheckboxColumn("Delete", default=False),
             "Name": st.column_config.TextColumn("Name"),
             "Number": st.column_config.TextColumn("Number"),
             "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
@@ -239,16 +263,30 @@ if cards:
             "Total Value": st.column_config.NumberColumn("Total Value", format="$%.2f"),
             "TCGPlayer URL": st.column_config.LinkColumn("TCGPlayer URL"),
         },
+        column_order=["Delete", "Name", "Number", "Qty", "Market Price", "Total Value", "TCGPlayer URL"],
         key="inventory_editor",
     )
 
     editor_state = st.session_state.get("inventory_editor", {})
     edited_rows = editor_state.get("edited_rows", {})
-    deleted_rows = editor_state.get("deleted_rows", [])
-    has_changes = bool(edited_rows) or bool(deleted_rows)
+
+    # Collect rows marked for deletion via the Delete checkbox
+    delete_indices = []
+    for idx_str, changes in edited_rows.items():
+        if changes.get("Delete") is True:
+            delete_indices.append(int(idx_str))
+
+    # Filter out Delete column from edited_rows for save_edits
+    field_edits = {}
+    for idx_str, changes in edited_rows.items():
+        real_changes = {k: v for k, v in changes.items() if k != "Delete"}
+        if real_changes:
+            field_edits[idx_str] = real_changes
+
+    has_changes = bool(field_edits) or bool(delete_indices)
 
     if st.button("Save Changes", type="primary", disabled=not has_changes):
-        num_updated, num_deleted = save_edits(edited_rows, deleted_rows, cards)
+        num_updated, num_deleted = save_edits(field_edits, delete_indices, cards)
         parts = []
         if num_updated:
             parts.append(f"{num_updated} updated")
