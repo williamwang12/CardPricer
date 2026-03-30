@@ -8,18 +8,23 @@ import pandas as pd
 
 from models import Card
 from scraper import price_cards
-from stickers import generate_sticker_pdf, sticker_count
+from stickers import generate_sticker_pdf, sticker_count, labels_per_page, LABEL_FORMATS
+from db import (
+    load_all_cards,
+    add_card,
+    replace_all_cards,
+    update_prices,
+    save_edits,
+    seed_from_excel,
+    card_count,
+)
 
-st.set_page_config(page_title="Pokemon Card Pricer", layout="wide")
-st.title("Pokemon Card Pricer")
-st.caption("Upload your card spreadsheet, map columns, and get TCGPlayer Near Mint market prices.")
+st.set_page_config(page_title="Pokemon Card Inventory", layout="wide")
+st.title("Pokemon Card Inventory")
+st.caption("Track your collection, update prices from TCGPlayer, and export.")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-def read_excel(file) -> pd.DataFrame:
-    """Read an uploaded Excel file into a DataFrame."""
-    return pd.read_excel(file, engine="openpyxl")
 
 
 def cards_from_df(
@@ -35,7 +40,13 @@ def cards_from_df(
         if not name:
             continue
 
-        number = str(row[col_number]).strip() if col_number and pd.notna(row.get(col_number)) else ""
+        number = ""
+        if col_number and pd.notna(row.get(col_number)):
+            raw = row[col_number]
+            if isinstance(raw, float) and raw == int(raw):
+                number = str(int(raw))
+            else:
+                number = str(raw).strip()
 
         quantity = 1
         if col_quantity and pd.notna(row.get(col_quantity)):
@@ -48,26 +59,11 @@ def cards_from_df(
     return cards
 
 
-def cards_to_df(cards: list[Card]) -> pd.DataFrame:
-    """Convert a list of Card objects to a DataFrame for display."""
-    rows = []
-    for c in cards:
-        rows.append({
-            "Name": c.name,
-            "Number": c.number,
-            "Qty": c.quantity,
-            "Market Price": f"${c.market_price:.2f}" if c.market_price is not None else "N/A",
-            "Total Value": f"${c.total_value():.2f}" if c.total_value() is not None else "N/A",
-            "TCGPlayer URL": c.tcgplayer_url or "",
-        })
-    return pd.DataFrame(rows)
-
-
 def export_excel(cards: list[Card]) -> bytes:
-    """Export priced cards to an Excel file and return as bytes."""
+    """Export cards to an Excel file and return as bytes."""
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Priced Cards"
+    ws.title = "Inventory"
 
     headers = ["Name", "Number", "Qty", "Market Price", "Total Value", "TCGPlayer URL"]
     ws.append(headers)
@@ -87,97 +83,193 @@ def export_excel(cards: list[Card]) -> bytes:
     return buf.getvalue()
 
 
-# ── Session state ────────────────────────────────────────────────────────────
+# ── Seed DB on first boot ────────────────────────────────────────────────────
 
-if "cards" not in st.session_state:
-    st.session_state.cards = None
-if "priced" not in st.session_state:
-    st.session_state.priced = False
+if "seeded" not in st.session_state:
+    n = seed_from_excel("ExistingInventory.xlsx")
+    if n > 0:
+        st.toast(f"Imported {n} cards from ExistingInventory.xlsx")
+    st.session_state.seeded = True
 
 
-# ── Upload ───────────────────────────────────────────────────────────────────
+# ── Load inventory ───────────────────────────────────────────────────────────
 
-uploaded_file = st.file_uploader("Upload your card spreadsheet (.xlsx)", type=["xlsx"])
+cards = load_all_cards()
 
-if uploaded_file is not None:
-    df = read_excel(uploaded_file)
-    st.subheader("Preview")
-    st.dataframe(df, use_container_width=True)
 
-    # ── Column mapping ───────────────────────────────────────────────────────
-    st.subheader("Map Columns")
-    columns = list(df.columns)
-    none_option = ["(none)"]
+# ── Stats bar ────────────────────────────────────────────────────────────────
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        col_name = st.selectbox("Card Name *", columns, index=0)
-    with col2:
-        col_number = st.selectbox("Card Number", none_option + columns, index=0)
-    with col3:
-        col_quantity = st.selectbox("Quantity", none_option + columns, index=0)
+priced = [c for c in cards if c.market_price is not None]
+total_qty = sum(c.quantity for c in cards)
+total_value = sum(c.total_value() for c in priced)
 
-    # Convert "(none)" selections to None
-    col_number = None if col_number == "(none)" else col_number
-    col_quantity = None if col_quantity == "(none)" else col_quantity
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Unique Cards", len(cards))
+c2.metric("Total Cards", total_qty)
+c3.metric("Priced", f"{len(priced)}/{len(cards)}")
+c4.metric("Total Value", f"${total_value:.2f}")
 
-    # ── Price button ─────────────────────────────────────────────────────────
-    if st.button("Price Cards", type="primary"):
-        cards = cards_from_df(df, col_name, col_number, col_quantity)
 
-        if not cards:
-            st.error("No valid cards found. Check your column mapping.")
-        else:
-            progress_bar = st.progress(0, text="Starting...")
-            status_text = st.empty()
+# ── Add Cards ────────────────────────────────────────────────────────────────
 
-            def on_progress(idx, total, card):
-                pct = idx / total
-                progress_bar.progress(pct, text=f"Looking up {idx + 1}/{total}: {card.name}")
-                status_text.text(f"Searching: {card.search_query()}")
+with st.expander("Add Cards"):
+    tab_manual, tab_excel = st.tabs(["Manual", "Excel Import"])
 
-            with st.spinner("Fetching prices from TCGPlayer..."):
-                price_cards(cards, progress_callback=on_progress)
+    with tab_manual:
+        with st.form("add_card_form", clear_on_submit=True):
+            fc1, fc2, fc3 = st.columns([3, 2, 1])
+            with fc1:
+                new_name = st.text_input("Card Name *")
+            with fc2:
+                new_number = st.text_input("Card Number")
+            with fc3:
+                new_qty = st.number_input("Qty", min_value=1, value=1, step=1)
 
-            progress_bar.progress(1.0, text="Done!")
-            status_text.empty()
+            if st.form_submit_button("Add Card", type="primary"):
+                if new_name.strip():
+                    add_card(Card(name=new_name.strip(), number=new_number.strip(), quantity=new_qty))
+                    st.toast(f"Added {new_name.strip()}")
+                    st.rerun()
+                else:
+                    st.error("Card name is required.")
 
-            st.session_state.cards = cards
-            st.session_state.priced = True
+    with tab_excel:
+        uploaded = st.file_uploader("Upload spreadsheet (.xlsx)", type=["xlsx"], key="import_xlsx")
+        if uploaded is not None:
+            df = pd.read_excel(uploaded, engine="openpyxl")
+            st.dataframe(df, use_container_width=True, height=200)
 
-    # ── Results ──────────────────────────────────────────────────────────────
-    if st.session_state.priced and st.session_state.cards:
-        cards = st.session_state.cards
-        st.subheader("Results")
+            columns = list(df.columns)
+            none_option = ["(none)"]
+            columns_lower = [c.lower() for c in columns]
 
-        result_df = cards_to_df(cards)
-        st.dataframe(
-            result_df,
-            use_container_width=True,
-            column_config={
-                "TCGPlayer URL": st.column_config.LinkColumn("TCGPlayer URL"),
-            },
-        )
+            def _guess_index(keywords, option_list, fallback=0):
+                for kw in keywords:
+                    for i, col in enumerate(columns_lower):
+                        if kw == col:
+                            return i + (len(option_list) - len(columns))
+                return fallback
 
-        # Summary stats
-        priced = [c for c in cards if c.market_price is not None]
-        total_value = sum(c.total_value() for c in priced)
-        col_a, col_b, col_c = st.columns(3)
-        col_a.metric("Cards Priced", f"{len(priced)}/{len(cards)}")
-        col_b.metric("Total Market Value", f"${total_value:.2f}")
-        col_c.metric("Unique Cards", str(len(cards)))
+            name_default = _guess_index(["name", "card name", "card"], columns, 0)
+            number_default = _guess_index(["number", "card number", "no.", "num"], none_option + columns, 0)
+            qty_default = _guess_index(["quantity", "qty", "count"], none_option + columns, 0)
 
-        # Export
+            mc1, mc2, mc3 = st.columns(3)
+            with mc1:
+                col_name = st.selectbox("Card Name *", columns, index=name_default, key="imp_name")
+            with mc2:
+                col_number = st.selectbox("Card Number", none_option + columns, index=number_default, key="imp_num")
+            with mc3:
+                col_quantity = st.selectbox("Quantity", none_option + columns, index=qty_default, key="imp_qty")
+
+            col_number = None if col_number == "(none)" else col_number
+            col_quantity = None if col_quantity == "(none)" else col_quantity
+
+            if st.button("Replace Inventory", type="primary"):
+                import_cards = cards_from_df(df, col_name, col_number, col_quantity)
+                if not import_cards:
+                    st.error("No valid cards found. Check your column mapping.")
+                else:
+                    count = replace_all_cards(import_cards)
+                    st.toast(f"Replaced inventory with {count} cards")
+                    st.rerun()
+
+
+# ── Inventory ────────────────────────────────────────────────────────────────
+
+st.subheader("Inventory")
+
+if cards:
+    # Build DataFrame for the data editor
+    editor_data = []
+    for c in cards:
+        editor_data.append({
+            "Name": c.name,
+            "Number": c.number,
+            "Qty": c.quantity,
+            "Market Price": c.market_price,
+            "Total Value": c.total_value(),
+            "TCGPlayer URL": c.tcgplayer_url or "",
+        })
+    editor_df = pd.DataFrame(editor_data)
+
+    edited = st.data_editor(
+        editor_df,
+        use_container_width=True,
+        num_rows="dynamic",
+        disabled=["Name", "Number", "Market Price", "Total Value", "TCGPlayer URL"],
+        column_config={
+            "Market Price": st.column_config.NumberColumn("Market Price", format="$%.2f"),
+            "Total Value": st.column_config.NumberColumn("Total Value", format="$%.2f"),
+            "TCGPlayer URL": st.column_config.LinkColumn("TCGPlayer URL"),
+            "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
+        },
+        key="inventory_editor",
+    )
+
+    editor_state = st.session_state.get("inventory_editor", {})
+    edited_rows = editor_state.get("edited_rows", {})
+    deleted_rows = editor_state.get("deleted_rows", [])
+    has_changes = bool(edited_rows) or bool(deleted_rows)
+
+    if st.button("Save Changes", type="primary", disabled=not has_changes):
+        num_updated, num_deleted = save_edits(edited_rows, deleted_rows, cards)
+        parts = []
+        if num_updated:
+            parts.append(f"{num_updated} updated")
+        if num_deleted:
+            parts.append(f"{num_deleted} deleted")
+        st.toast("Saved: " + ", ".join(parts) if parts else "No changes")
+        st.rerun()
+
+    st.divider()
+
+    # Reprice All
+    if st.button("Reprice All"):
+        progress_bar = st.progress(0, text="Starting...")
+        status_text = st.empty()
+
+        def on_progress(idx, total, card):
+            pct = idx / total
+            progress_bar.progress(pct, text=f"Looking up {idx + 1}/{total}: {card.name}")
+            status_text.text(f"Searching: {card.search_query()}")
+
+        with st.spinner("Fetching prices from TCGPlayer..."):
+            price_cards(cards, progress_callback=on_progress)
+
+        progress_bar.progress(1.0, text="Done!")
+        status_text.empty()
+
+        update_prices(cards)
+        st.toast("Prices updated!")
+        st.rerun()
+
+else:
+    st.info("No cards in inventory. Add some above!")
+
+
+# ── Export ───────────────────────────────────────────────────────────────────
+
+if cards:
+    with st.expander("Export"):
+        # Excel download
         excel_bytes = export_excel(cards)
         st.download_button(
-            label="Download Results (.xlsx)",
+            label="Download Inventory (.xlsx)",
             data=excel_bytes,
-            file_name="priced_cards.xlsx",
+            file_name="inventory.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
         # Sticker sheet
-        st.subheader("Sticker Sheet (Avery 5167)")
+        st.subheader("Sticker Sheet")
+        format_options = {key: spec["label"] for key, spec in LABEL_FORMATS.items()}
+        selected_format = st.selectbox(
+            "Label format",
+            options=list(format_options.keys()),
+            format_func=lambda k: format_options[k],
+        )
+
         show_logo = st.toggle("Include logo on stickers", value=True)
         if show_logo:
             logo_file = st.file_uploader("Upload logo (override default)", type=["png", "jpg", "jpeg"])
@@ -193,11 +285,13 @@ if uploaded_file is not None:
             logo_bytes = None
 
         total_stickers = sticker_count(cards)
-        num_sheets = (total_stickers + 79) // 80
-        st.info(f"{total_stickers} sticker{'s' if total_stickers != 1 else ''}, {num_sheets} sheet{'s' if num_sheets != 1 else ''}")
+        per_page = labels_per_page(selected_format)
+        num_sheets = (total_stickers + per_page - 1) // per_page if total_stickers > 0 else 0
+        st.info(f"{total_stickers} sticker{'s' if total_stickers != 1 else ''}, "
+                f"{num_sheets} sheet{'s' if num_sheets != 1 else ''}")
 
         if total_stickers > 0:
-            pdf_bytes = generate_sticker_pdf(cards, logo_bytes)
+            pdf_bytes = generate_sticker_pdf(cards, logo_bytes, label_format=selected_format)
             st.download_button(
                 label="Download Sticker Sheet (PDF)",
                 data=pdf_bytes,

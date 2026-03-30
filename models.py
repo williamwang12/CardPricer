@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -10,13 +10,16 @@ class Card:
     quantity: int = 1
     market_price: Optional[float] = None
     tcgplayer_url: Optional[str] = None
+    id: Optional[int] = field(default=None, repr=False)
 
     def search_query(self) -> str:
-        """Build a search query string from card attributes."""
-        parts = [self.name]
-        if self.number:
-            parts.append(self.number)
-        return " ".join(parts)
+        """Build a search query string from card attributes.
+
+        Uses name only — including the card number in the query causes
+        zero results for many older sets (e.g. Sword & Shield era).
+        The number is used for matching against results instead.
+        """
+        return self.name
 
     def search_url(self) -> str:
         """Build a TCGPlayer search URL for this card."""

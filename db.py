@@ -1,0 +1,228 @@
+"""Database layer — all Supabase interactions isolated here."""
+
+from __future__ import annotations
+
+import os
+from typing import Optional
+
+import streamlit as st
+import pandas as pd
+from supabase import create_client, Client
+
+from models import Card
+
+TABLE = "cards"
+
+
+# ── Client ────────────────────────────────────────────────────────────────────
+
+
+@st.cache_resource
+def _get_client() -> Client:
+    """Return a cached Supabase client using Streamlit secrets."""
+    cfg = st.secrets["connections"]["supabase"]
+    return create_client(cfg["SUPABASE_URL"], cfg["SUPABASE_KEY"])
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _row_to_card(row: dict) -> Card:
+    return Card(
+        name=row["name"],
+        number=row.get("number", ""),
+        quantity=row.get("quantity", 1),
+        market_price=row.get("market_price"),
+        tcgplayer_url=row.get("tcgplayer_url"),
+        id=row["id"],
+    )
+
+
+# ── Reads ─────────────────────────────────────────────────────────────────────
+
+
+def load_all_cards() -> list[Card]:
+    """SELECT all cards, ordered by name."""
+    sb = _get_client()
+    resp = sb.table(TABLE).select("*").order("name").execute()
+    return [_row_to_card(r) for r in resp.data]
+
+
+def card_count() -> int:
+    """Return total number of rows (for checking if DB is empty)."""
+    sb = _get_client()
+    resp = sb.table(TABLE).select("id", count="exact").execute()
+    return resp.count or 0
+
+
+# ── Writes ────────────────────────────────────────────────────────────────────
+
+
+def add_card(card: Card) -> None:
+    """Upsert a single card. If name+number already exists, increment qty."""
+    sb = _get_client()
+    # Check for existing card with same name+number
+    resp = (
+        sb.table(TABLE)
+        .select("id, quantity")
+        .eq("name", card.name)
+        .eq("number", card.number)
+        .execute()
+    )
+    if resp.data:
+        existing = resp.data[0]
+        new_qty = existing["quantity"] + card.quantity
+        sb.table(TABLE).update({"quantity": new_qty}).eq("id", existing["id"]).execute()
+    else:
+        sb.table(TABLE).insert({
+            "name": card.name,
+            "number": card.number,
+            "quantity": card.quantity,
+            "market_price": card.market_price,
+            "tcgplayer_url": card.tcgplayer_url,
+        }).execute()
+
+
+def add_cards_bulk(cards: list[Card]) -> int:
+    """Insert/upsert a list of cards. Returns count added."""
+    count = 0
+    for card in cards:
+        add_card(card)
+        count += 1
+    return count
+
+
+def update_card(card_id: int, **fields) -> None:
+    """Update specific fields on a card by ID."""
+    sb = _get_client()
+    sb.table(TABLE).update(fields).eq("id", card_id).execute()
+
+
+def update_prices(cards: list[Card]) -> None:
+    """Batch update market_price + tcgplayer_url after repricing."""
+    sb = _get_client()
+    for card in cards:
+        if card.id is not None:
+            sb.table(TABLE).update({
+                "market_price": card.market_price,
+                "tcgplayer_url": card.tcgplayer_url,
+            }).eq("id", card.id).execute()
+
+
+def delete_cards(card_ids: list[int]) -> None:
+    """Delete cards by ID list."""
+    sb = _get_client()
+    for cid in card_ids:
+        sb.table(TABLE).delete().eq("id", cid).execute()
+
+
+def replace_all_cards(cards: list[Card]) -> int:
+    """Delete entire inventory and insert new cards. Returns count inserted."""
+    sb = _get_client()
+    sb.table(TABLE).delete().neq("id", 0).execute()
+    rows = [
+        {
+            "name": c.name,
+            "number": c.number,
+            "quantity": c.quantity,
+            "market_price": c.market_price,
+            "tcgplayer_url": c.tcgplayer_url,
+        }
+        for c in cards
+    ]
+    if rows:
+        sb.table(TABLE).insert(rows).execute()
+    return len(rows)
+
+
+def save_edits(
+    edited_rows: dict,
+    deleted_indices: list[int],
+    original_cards: list[Card],
+) -> tuple[int, int]:
+    """Apply st.data_editor diffs to DB.
+
+    edited_rows: {row_index: {col_name: new_value}} from data_editor
+    deleted_indices: [row_index, ...] from data_editor
+    original_cards: the cards list the editor was built from
+
+    Returns (num_updated, num_deleted).
+    """
+    num_updated = 0
+    num_deleted = 0
+
+    # Handle edits (qty changes)
+    for idx_str, changes in edited_rows.items():
+        idx = int(idx_str)
+        if idx >= len(original_cards):
+            continue
+        card = original_cards[idx]
+        if card.id is None:
+            continue
+
+        new_qty = changes.get("Qty")
+        if new_qty is not None:
+            new_qty = int(new_qty)
+            if new_qty <= 0:
+                # Treat qty=0 as delete
+                delete_cards([card.id])
+                num_deleted += 1
+            else:
+                update_card(card.id, quantity=new_qty)
+                num_updated += 1
+
+    # Handle row deletions
+    ids_to_delete = []
+    for idx in deleted_indices:
+        if idx < len(original_cards) and original_cards[idx].id is not None:
+            ids_to_delete.append(original_cards[idx].id)
+    if ids_to_delete:
+        delete_cards(ids_to_delete)
+        num_deleted += len(ids_to_delete)
+
+    return num_updated, num_deleted
+
+
+def seed_from_excel(filepath: str) -> int:
+    """If DB is empty, import cards from an Excel file. Returns count imported."""
+    if card_count() > 0:
+        return 0
+    if not os.path.exists(filepath):
+        return 0
+
+    df = pd.read_excel(filepath, engine="openpyxl")
+    cols_lower = {c.lower(): c for c in df.columns}
+
+    # Find columns
+    col_name = cols_lower.get("name") or cols_lower.get("card name")
+    col_number = cols_lower.get("number") or cols_lower.get("card number")
+    col_qty = cols_lower.get("quantity") or cols_lower.get("qty")
+
+    if col_name is None:
+        return 0
+
+    cards = []
+    for _, row in df.iterrows():
+        name = str(row[col_name]).strip() if pd.notna(row[col_name]) else ""
+        if not name:
+            continue
+
+        number = ""
+        if col_number and pd.notna(row.get(col_number)):
+            raw = row[col_number]
+            # Handle float numbers like 107.0 → "107"
+            if isinstance(raw, float) and raw == int(raw):
+                number = str(int(raw))
+            else:
+                number = str(raw).strip()
+
+        quantity = 1
+        if col_qty and pd.notna(row.get(col_qty)):
+            try:
+                quantity = int(row[col_qty])
+            except (ValueError, TypeError):
+                quantity = 1
+
+        cards.append(Card(name=name, number=number, quantity=quantity))
+
+    return add_cards_bulk(cards)

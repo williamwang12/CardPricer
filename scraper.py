@@ -50,35 +50,75 @@ def _build_search_payload() -> dict:
     }
 
 
+def _get_result_number(result: dict) -> str:
+    """Extract card number from a search result's customAttributes."""
+    attrs = result.get("customAttributes") or {}
+    return (attrs.get("number") or "").strip()
+
+
+def _normalize_number(num: str) -> str:
+    """Normalize a card number for comparison.
+
+    Takes the part before '/' and strips leading zeros.
+    e.g. "076/198" -> "76", "TG14/TG30" -> "TG14", "76" -> "76"
+    """
+    part = num.split("/")[0].strip()
+    # Strip leading zeros only from pure numeric strings
+    if part.isdigit():
+        return part.lstrip("0") or "0"
+    return part
+
+
+def _name_matches(result: dict, card_name_lower: str) -> bool:
+    """Check if the result's product name contains the card name."""
+    product_name = result.get("productName", "").lower()
+    return card_name_lower in product_name
+
+
+def _number_matches(result: dict, card_number_normalized: str) -> bool:
+    """Check if the result's number matches the card number.
+
+    Compares the normalized part before the slash (leading zeros stripped).
+    """
+    result_number = _get_result_number(result)
+    result_normalized = _normalize_number(result_number)
+    return card_number_normalized == result_normalized
+
+
 def _find_best_match(results: list[dict], card: Card) -> Optional[dict]:
     """Find the best matching result from search API results.
 
-    Prioritizes exact card number match, then name match.
+    Uses contains-based name matching and normalized number comparison.
+    When a card number is provided, never falls back to name-only matching.
     """
     if not results:
         return None
 
     card_name_lower = card.name.lower()
-    card_number = card.number.split("/")[0] if card.number else ""
+    card_number = card.number.strip() if card.number else ""
 
-    # Pass 1: Match by card number (the part before the slash)
     if card_number:
+        card_number_norm = _normalize_number(card_number)
+
+        # Pass 1: Both name and number match (strongest signal)
         for r in results:
-            product_name = r.get("productName", "")
-            # TCGPlayer formats as "Name - 025/165"
-            if f"- {card.number}" in product_name:
-                return r
-            if card_number and f"- {card_number}" in product_name:
+            if _name_matches(r, card_name_lower) and _number_matches(r, card_number_norm):
                 return r
 
-    # Pass 2: Match by exact name in product name
+        # Pass 2: Number match only
+        for r in results:
+            if _number_matches(r, card_number_norm):
+                return r
+
+        # Number was provided but nothing matched — don't fall back to name-only
+        return None
+
+    # No number provided — match by name only
     for r in results:
-        product_name = r.get("productName", "").lower()
-        if card_name_lower in product_name:
+        if _name_matches(r, card_name_lower):
             return r
 
-    # Fallback: return the first result
-    return results[0]
+    return None
 
 
 def search_tcgplayer(
