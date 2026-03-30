@@ -125,25 +125,25 @@ with st.expander("Add Cards"):
             st.session_state.add_form_key = 0
 
         fk = st.session_state.add_form_key
-        fc1, fc2, fc3 = st.columns([3, 2, 1])
+        fc1, fc2, fc3, fc4 = st.columns([3, 2, 1, 1])
         with fc1:
             new_name = st.text_input("Card Name *", key=f"new_name_{fk}")
         with fc2:
             new_number = st.text_input("Card Number", key=f"new_number_{fk}")
         with fc3:
             new_qty = st.number_input("Qty", min_value=1, value=1, step=1, key=f"new_qty_{fk}")
+        with fc4:
+            manual_price = st.number_input("Manual Price ($)", min_value=0.0, value=0.0, step=0.01,
+                                           format="%.2f", key=f"manual_price_{fk}")
 
-        # Action row: buttons + manual price
-        bc1, bc2, bc3, bc4, _ = st.columns([1, 1, 1, 1, 3])
+        # Action row: buttons
+        bc1, bc2, bc3, _ = st.columns([1, 1, 1, 4])
         with bc1:
             do_check = st.button("Check Price")
         with bc2:
             do_check_and_add = st.button("Check & Add")
         with bc3:
             do_add = st.button("Add Card", type="primary")
-        with bc4:
-            manual_price = st.number_input("Manual Price ($)", min_value=0.0, value=0.0, step=0.01,
-                                           format="%.2f", key=f"manual_price_{fk}")
 
         if do_check:
             if new_name.strip():
