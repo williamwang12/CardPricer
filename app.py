@@ -133,25 +133,31 @@ with st.expander("Add Cards"):
         with fc3:
             new_qty = st.number_input("Qty", min_value=1, value=1, step=1, key=f"new_qty_{fk}")
 
-        # Check Price and Manual Price side by side
-        pc1, pc2 = st.columns(2)
-        with pc1:
-            if st.button("Check Price"):
-                if new_name.strip():
-                    test_card = Card(name=new_name.strip(), number=new_number.strip())
-                    with st.spinner(f"Looking up {test_card.name}..."):
-                        price, url = search_tcgplayer(test_card)
-                    st.session_state.checked_price = price
-                    st.session_state.checked_url = url if price is not None else None
-                    if price is not None:
-                        st.success(f"**{test_card.name}** — ${price:.2f}  [{url}]({url})" if url else f"**{test_card.name}** — ${price:.2f}")
-                    else:
-                        st.warning(f"No match found for **{test_card.name}** {test_card.number}")
-                else:
-                    st.error("Enter a card name first.")
-        with pc2:
+        # Action row: buttons + manual price
+        bc1, bc2, bc3, bc4 = st.columns([1, 1, 1, 1])
+        with bc1:
+            do_check = st.button("Check Price")
+        with bc2:
+            do_check_and_add = st.button("Check & Add")
+        with bc3:
+            do_add = st.button("Add Card", type="primary")
+        with bc4:
             manual_price = st.number_input("Manual Price ($)", min_value=0.0, value=0.0, step=0.01,
                                            format="%.2f", key=f"manual_price_{fk}")
+
+        if do_check:
+            if new_name.strip():
+                test_card = Card(name=new_name.strip(), number=new_number.strip())
+                with st.spinner(f"Looking up {test_card.name}..."):
+                    price, url = search_tcgplayer(test_card)
+                st.session_state.checked_price = price
+                st.session_state.checked_url = url if price is not None else None
+                if price is not None:
+                    st.success(f"**{test_card.name}** — ${price:.2f}  [{url}]({url})" if url else f"**{test_card.name}** — ${price:.2f}")
+                else:
+                    st.warning(f"No match found for **{test_card.name}** {test_card.number}")
+            else:
+                st.error("Enter a card name first.")
 
         # Show checkbox to include checked price (only after a successful check)
         include_checked = False
@@ -160,13 +166,6 @@ with st.expander("Add Cards"):
                 f"Include TCGPlayer price (${st.session_state.checked_price:.2f})",
                 value=True, key=f"include_price_{fk}",
             )
-
-        ab1, ab2, ab3 = st.columns(3)
-        with ab1:
-            do_check_and_add = st.button("Check & Add")
-        with ab2:
-            do_add = st.button("Add Card", type="primary")
-        # ab3 left empty for spacing
 
         if do_check_and_add:
             if new_name.strip():
