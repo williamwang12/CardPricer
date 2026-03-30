@@ -20,7 +20,11 @@ TABLE = "cards"
 @st.cache_resource
 def _get_client() -> Client:
     """Return a cached Supabase client using Streamlit secrets."""
-    cfg = st.secrets["connections"]["supabase"]
+    s = st.secrets
+    # Support both flat and nested secret formats
+    if "SUPABASE_URL" in s:
+        return create_client(s["SUPABASE_URL"], s["SUPABASE_KEY"])
+    cfg = s["connections"]["supabase"]
     return create_client(cfg["SUPABASE_URL"], cfg["SUPABASE_KEY"])
 
 
