@@ -21,6 +21,27 @@ from db import (
 )
 
 st.set_page_config(page_title="Pokemon Card Inventory", layout="wide")
+
+# ── Password gate ────────────────────────────────────────────────────────────
+
+def check_password() -> bool:
+    """Show a login form and return True if the password is correct."""
+    if st.session_state.get("authenticated"):
+        return True
+
+    st.title("Pokemon Card Inventory")
+    password = st.text_input("Password", type="password", key="login_pw")
+    if st.button("Log in", type="primary"):
+        if password == st.secrets.get("APP_PASSWORD", ""):
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+    return False
+
+if not check_password():
+    st.stop()
+
 st.title("Pokemon Card Inventory")
 st.caption("Track your collection, update prices from TCGPlayer, and export.")
 
