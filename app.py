@@ -166,8 +166,10 @@ with st.expander("Add Cards"):
                 # Determine price: manual override > checked price > None
                 price = None
                 url = st.session_state.checked_url  # always include link if we checked
+                is_manual = False
                 if manual_price > 0:
                     price = round(manual_price, 2)
+                    is_manual = True
                 elif include_checked:
                     price = st.session_state.checked_price
                 else:
@@ -179,6 +181,7 @@ with st.expander("Add Cards"):
                     quantity=new_qty,
                     market_price=price,
                     tcgplayer_url=url,
+                    manual_price=is_manual,
                 )
                 add_card(card)
                 st.toast(f"Added {new_name.strip()}")
@@ -244,6 +247,7 @@ if cards:
             "Name": c.name,
             "Number": c.number,
             "Qty": c.quantity,
+            "Manual": c.manual_price,
             "Market Price": c.market_price,
             "Total Value": c.total_value(),
             "TCGPlayer URL": c.tcgplayer_url or "",
@@ -259,11 +263,12 @@ if cards:
             "Name": st.column_config.TextColumn("Name"),
             "Number": st.column_config.TextColumn("Number"),
             "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
+            "Manual": st.column_config.CheckboxColumn("Manual", help="Manual price — won't be overwritten by Reprice All"),
             "Market Price": st.column_config.NumberColumn("Market Price", format="$%.2f"),
             "Total Value": st.column_config.NumberColumn("Total Value", format="$%.2f"),
             "TCGPlayer URL": st.column_config.LinkColumn("TCGPlayer URL"),
         },
-        column_order=["Delete", "Name", "Number", "Qty", "Market Price", "Total Value", "TCGPlayer URL"],
+        column_order=["Delete", "Name", "Number", "Qty", "Manual", "Market Price", "Total Value", "TCGPlayer URL"],
         key="inventory_editor",
     )
 
@@ -297,24 +302,33 @@ if cards:
 
     st.divider()
 
-    # Reprice All
-    if st.button("Reprice All"):
-        progress_bar = st.progress(0, text="Starting...")
-        status_text = st.empty()
+    # Reprice All (skip manually priced cards)
+    auto_cards = [c for c in cards if not c.manual_price]
+    manual_count = len(cards) - len(auto_cards)
+    label = "Reprice All"
+    if manual_count:
+        label += f" ({manual_count} manual skipped)"
 
-        def on_progress(idx, total, card):
-            pct = idx / total
-            progress_bar.progress(pct, text=f"Looking up {idx + 1}/{total}: {card.name}")
-            status_text.text(f"Searching: {card.search_query()}")
+    if st.button(label):
+        if auto_cards:
+            progress_bar = st.progress(0, text="Starting...")
+            status_text = st.empty()
 
-        with st.spinner("Fetching prices from TCGPlayer..."):
-            price_cards(cards, progress_callback=on_progress)
+            def on_progress(idx, total, card):
+                pct = idx / total
+                progress_bar.progress(pct, text=f"Looking up {idx + 1}/{total}: {card.name}")
+                status_text.text(f"Searching: {card.search_query()}")
 
-        progress_bar.progress(1.0, text="Done!")
-        status_text.empty()
+            with st.spinner("Fetching prices from TCGPlayer..."):
+                price_cards(auto_cards, progress_callback=on_progress)
 
-        update_prices(cards)
-        st.toast("Prices updated!")
+            progress_bar.progress(1.0, text="Done!")
+            status_text.empty()
+
+            update_prices(auto_cards)
+            st.toast(f"Repriced {len(auto_cards)} cards!")
+        else:
+            st.toast("All cards have manual prices — nothing to reprice.")
         st.rerun()
 
 else:

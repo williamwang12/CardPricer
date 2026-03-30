@@ -38,6 +38,7 @@ def _row_to_card(row: dict) -> Card:
         quantity=row.get("quantity", 1),
         market_price=row.get("market_price"),
         tcgplayer_url=row.get("tcgplayer_url"),
+        manual_price=row.get("manual_price", False),
         id=row["id"],
     )
 
@@ -84,6 +85,7 @@ def add_card(card: Card) -> None:
             "quantity": card.quantity,
             "market_price": card.market_price,
             "tcgplayer_url": card.tcgplayer_url,
+            "manual_price": card.manual_price,
         }).execute()
 
 
@@ -131,6 +133,7 @@ def replace_all_cards(cards: list[Card]) -> int:
             "quantity": c.quantity,
             "market_price": c.market_price,
             "tcgplayer_url": c.tcgplayer_url,
+            "manual_price": c.manual_price,
         }
         for c in cards
     ]
@@ -155,8 +158,8 @@ def save_edits(
     num_updated = 0
     num_deleted = 0
 
-    # Handle edits (qty, name, number changes)
-    col_to_field = {"Name": "name", "Number": "number", "Qty": "quantity"}
+    # Handle edits (qty, name, number, manual_price changes)
+    col_to_field = {"Name": "name", "Number": "number", "Qty": "quantity", "Manual": "manual_price"}
     for idx_str, changes in edited_rows.items():
         idx = int(idx_str)
         if idx >= len(original_cards):
@@ -177,7 +180,12 @@ def save_edits(
         for col, field in col_to_field.items():
             if col in changes:
                 val = changes[col]
-                updates[field] = int(val) if col == "Qty" else str(val).strip()
+                if col == "Qty":
+                    updates[field] = int(val)
+                elif col == "Manual":
+                    updates[field] = bool(val)
+                else:
+                    updates[field] = str(val).strip()
 
         if updates:
             update_card(card.id, **updates)

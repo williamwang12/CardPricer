@@ -10,6 +10,7 @@ class Card:
     quantity: int = 1
     market_price: Optional[float] = None
     tcgplayer_url: Optional[str] = None
+    manual_price: bool = False
     id: Optional[int] = field(default=None, repr=False)
 
     def search_query(self) -> str:
