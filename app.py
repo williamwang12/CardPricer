@@ -116,20 +116,38 @@ with st.expander("Add Cards"):
     tab_manual, tab_excel = st.tabs(["Manual", "Excel Import"])
 
     with tab_manual:
+        # Track checked price and form reset counter
+        if "checked_price" not in st.session_state:
+            st.session_state.checked_price = None
+            st.session_state.checked_url = None
+        if "add_form_key" not in st.session_state:
+            st.session_state.add_form_key = 0
+
+        fk = st.session_state.add_form_key
         fc1, fc2, fc3 = st.columns([3, 2, 1])
         with fc1:
-            new_name = st.text_input("Card Name *")
+            new_name = st.text_input("Card Name *", key=f"new_name_{fk}")
         with fc2:
-            new_number = st.text_input("Card Number")
+            new_number = st.text_input("Card Number", key=f"new_number_{fk}")
         with fc3:
-            new_qty = st.number_input("Qty", min_value=1, value=1, step=1)
+            new_qty = st.number_input("Qty", min_value=1, value=1, step=1, key=f"new_qty_{fk}")
 
         btn1, btn2 = st.columns(2)
         with btn1:
             if st.button("Add Card", type="primary"):
                 if new_name.strip():
-                    add_card(Card(name=new_name.strip(), number=new_number.strip(), quantity=new_qty))
+                    card = Card(
+                        name=new_name.strip(),
+                        number=new_number.strip(),
+                        quantity=new_qty,
+                        market_price=st.session_state.checked_price,
+                        tcgplayer_url=st.session_state.checked_url,
+                    )
+                    add_card(card)
                     st.toast(f"Added {new_name.strip()}")
+                    st.session_state.checked_price = None
+                    st.session_state.checked_url = None
+                    st.session_state.add_form_key += 1
                     st.rerun()
                 else:
                     st.error("Card name is required.")
@@ -139,6 +157,8 @@ with st.expander("Add Cards"):
                     test_card = Card(name=new_name.strip(), number=new_number.strip())
                     with st.spinner(f"Looking up {test_card.name}..."):
                         price, url = search_tcgplayer(test_card)
+                    st.session_state.checked_price = price
+                    st.session_state.checked_url = url
                     if price is not None:
                         st.success(f"**{test_card.name}** — ${price:.2f}  [{url}]({url})" if url else f"**{test_card.name}** — ${price:.2f}")
                     else:
