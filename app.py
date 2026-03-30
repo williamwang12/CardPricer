@@ -161,7 +161,43 @@ with st.expander("Add Cards"):
                 value=True, key=f"include_price_{fk}",
             )
 
-        if st.button("Add Card", type="primary"):
+        ab1, ab2, ab3 = st.columns(3)
+        with ab1:
+            do_check_and_add = st.button("Check & Add")
+        with ab2:
+            do_add = st.button("Add Card", type="primary")
+        # ab3 left empty for spacing
+
+        if do_check_and_add:
+            if new_name.strip():
+                test_card = Card(name=new_name.strip(), number=new_number.strip())
+                with st.spinner(f"Looking up {test_card.name}..."):
+                    price, url = search_tcgplayer(test_card)
+                if price is None:
+                    url = None
+
+                is_manual = manual_price > 0
+                final_price = round(manual_price, 2) if is_manual else price
+
+                card = Card(
+                    name=new_name.strip(),
+                    number=new_number.strip(),
+                    quantity=new_qty,
+                    market_price=final_price,
+                    tcgplayer_url=url,
+                    manual_price=is_manual,
+                )
+                add_card(card)
+                price_str = f" (${final_price:.2f})" if final_price else ""
+                st.toast(f"Added {new_name.strip()}{price_str}")
+                st.session_state.checked_price = None
+                st.session_state.checked_url = None
+                st.session_state.add_form_key += 1
+                st.rerun()
+            else:
+                st.error("Card name is required.")
+
+        if do_add:
             if new_name.strip():
                 # Determine price: manual override > checked price > None
                 price = None
