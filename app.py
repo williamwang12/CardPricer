@@ -158,7 +158,7 @@ with st.expander("Add Cards"):
                     with st.spinner(f"Looking up {test_card.name}..."):
                         price, url = search_tcgplayer(test_card)
                     st.session_state.checked_price = price
-                    st.session_state.checked_url = url
+                    st.session_state.checked_url = url if price is not None else None
                     if price is not None:
                         st.success(f"**{test_card.name}** — ${price:.2f}  [{url}]({url})" if url else f"**{test_card.name}** — ${price:.2f}")
                     else:
