@@ -134,7 +134,7 @@ with st.expander("Add Cards"):
             new_qty = st.number_input("Qty", min_value=1, value=1, step=1, key=f"new_qty_{fk}")
 
         # Action row: buttons + manual price
-        bc1, bc2, bc3, bc4 = st.columns([1, 1, 1, 1])
+        bc1, bc2, bc3, bc4, _ = st.columns([1, 1, 1, 1, 3])
         with bc1:
             do_check = st.button("Check Price")
         with bc2:
