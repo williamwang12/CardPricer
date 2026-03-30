@@ -133,12 +133,9 @@ with st.expander("Add Cards"):
         with fc3:
             new_qty = st.number_input("Qty", min_value=1, value=1, step=1, key=f"new_qty_{fk}")
 
-        # Manual price override
-        manual_price = st.number_input("Manual Price ($)", min_value=0.0, value=0.0, step=0.01,
-                                       format="%.2f", key=f"manual_price_{fk}")
-
-        btn1, btn2 = st.columns(2)
-        with btn2:
+        # Check Price and Manual Price side by side
+        pc1, pc2 = st.columns(2)
+        with pc1:
             if st.button("Check Price"):
                 if new_name.strip():
                     test_card = Card(name=new_name.strip(), number=new_number.strip())
@@ -152,6 +149,9 @@ with st.expander("Add Cards"):
                         st.warning(f"No match found for **{test_card.name}** {test_card.number}")
                 else:
                     st.error("Enter a card name first.")
+        with pc2:
+            manual_price = st.number_input("Manual Price ($)", min_value=0.0, value=0.0, step=0.01,
+                                           format="%.2f", key=f"manual_price_{fk}")
 
         # Show checkbox to include checked price (only after a successful check)
         include_checked = False
@@ -161,33 +161,33 @@ with st.expander("Add Cards"):
                 value=True, key=f"include_price_{fk}",
             )
 
-        with btn1:
-            if st.button("Add Card", type="primary"):
-                if new_name.strip():
-                    # Determine price: manual override > checked price > None
-                    price = None
-                    url = None
-                    if manual_price > 0:
-                        price = round(manual_price, 2)
-                    elif include_checked:
-                        price = st.session_state.checked_price
-                        url = st.session_state.checked_url
-
-                    card = Card(
-                        name=new_name.strip(),
-                        number=new_number.strip(),
-                        quantity=new_qty,
-                        market_price=price,
-                        tcgplayer_url=url,
-                    )
-                    add_card(card)
-                    st.toast(f"Added {new_name.strip()}")
-                    st.session_state.checked_price = None
-                    st.session_state.checked_url = None
-                    st.session_state.add_form_key += 1
-                    st.rerun()
+        if st.button("Add Card", type="primary"):
+            if new_name.strip():
+                # Determine price: manual override > checked price > None
+                price = None
+                url = st.session_state.checked_url  # always include link if we checked
+                if manual_price > 0:
+                    price = round(manual_price, 2)
+                elif include_checked:
+                    price = st.session_state.checked_price
                 else:
-                    st.error("Card name is required.")
+                    url = None  # no check was done or user unchecked — no link either
+
+                card = Card(
+                    name=new_name.strip(),
+                    number=new_number.strip(),
+                    quantity=new_qty,
+                    market_price=price,
+                    tcgplayer_url=url,
+                )
+                add_card(card)
+                st.toast(f"Added {new_name.strip()}")
+                st.session_state.checked_price = None
+                st.session_state.checked_url = None
+                st.session_state.add_form_key += 1
+                st.rerun()
+            else:
+                st.error("Card name is required.")
 
     with tab_excel:
         uploaded = st.file_uploader("Upload spreadsheet (.xlsx)", type=["xlsx"], key="import_xlsx")
