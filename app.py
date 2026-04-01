@@ -249,12 +249,16 @@ with st.expander("Add Cards"):
                 st.error("Card name is required.")
 
     with tab_csv:
-        csv_file = st.file_uploader("Upload TCGPlayer CSV", type=["csv"], key="import_csv")
+        if "csv_form_key" not in st.session_state:
+            st.session_state.csv_form_key = 0
+        ck = st.session_state.csv_form_key
+
+        csv_file = st.file_uploader("Upload TCGPlayer CSV", type=["csv"], key=f"import_csv_{ck}")
         if csv_file is not None:
             csv_df = pd.read_csv(csv_file)
             st.dataframe(csv_df, use_container_width=True, height=200)
 
-            if st.button("Add to Collection", type="primary", key="csv_add"):
+            if st.button("Add to Collection", type="primary", key=f"csv_add_{ck}"):
                 csv_cards = []
                 for _, row in csv_df.iterrows():
                     raw_name = str(row.get("Product Name", "")).strip()
@@ -281,14 +285,19 @@ with st.expander("Add Cards"):
                     csv_cards.append(Card(name=name, number=number, quantity=1, market_price=price))
 
                 if csv_cards:
-                    added = 0
                     for c in csv_cards:
                         add_card(c)
-                        added += 1
-                    st.toast(f"Added {added} cards to collection")
+                    st.session_state.csv_form_key += 1
+                    st.session_state.csv_success = len(csv_cards)
                     st.rerun()
                 else:
                     st.error("No valid cards found in CSV.")
+
+        # Show success message after rerun
+        if st.session_state.get("csv_success"):
+            st.success(f"Successfully added {st.session_state.csv_success} cards to collection!")
+            st.balloons()
+            del st.session_state.csv_success
 
     with tab_excel:
         uploaded = st.file_uploader("Upload spreadsheet (.xlsx)", type=["xlsx"], key="import_xlsx")
