@@ -317,3 +317,31 @@ def sell_card(card_name: str, card_number: str, quantity: int, amount: float) ->
 
     log_transaction("sell", card_name, card_number, quantity, amount)
     return None
+
+
+def rollback_import(imported: list[dict]) -> int:
+    """Reverse a CSV import by decrementing qty (or deleting) each card.
+
+    imported: list of {"name": str, "number": str, "quantity": int}
+    Returns count of cards affected.
+    """
+    sb = _get_client()
+    count = 0
+    for item in imported:
+        resp = (
+            sb.table(TABLE)
+            .select("id, quantity")
+            .eq("name", item["name"])
+            .eq("number", item["number"])
+            .execute()
+        )
+        if not resp.data:
+            continue
+        existing = resp.data[0]
+        new_qty = existing["quantity"] - item["quantity"]
+        if new_qty <= 0:
+            sb.table(TABLE).delete().eq("id", existing["id"]).execute()
+        else:
+            sb.table(TABLE).update({"quantity": new_qty}).eq("id", existing["id"]).execute()
+        count += 1
+    return count

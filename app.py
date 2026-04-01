@@ -21,6 +21,7 @@ from db import (
     buy_card,
     sell_card,
     get_transactions,
+    rollback_import,
 )
 
 st.set_page_config(page_title="Pokemon Card Inventory", layout="wide")
@@ -347,14 +348,19 @@ with st.expander("Add Cards"):
                 if csv_cards:
                     progress_bar = st.progress(0, text="Looking up cards...")
                     total = len(csv_cards)
+                    imported = []
                     for i, c in enumerate(csv_cards):
                         progress_bar.progress((i + 1) / total, text=f"Looking up {i + 1}/{total}: {c.name}")
-                        _, url = search_tcgplayer(c)
+                        price, url = search_tcgplayer(c)
+                        if c.market_price is None:
+                            c.market_price = price
                         c.tcgplayer_url = url
                         add_card(c)
+                        imported.append({"name": c.name, "number": c.number, "quantity": c.quantity})
                     progress_bar.progress(1.0, text="Done!")
                     st.session_state.csv_form_key += 1
                     st.session_state.csv_success = len(csv_cards)
+                    st.session_state.last_import = imported
                     st.rerun()
                 else:
                     st.error("No valid cards found in CSV.")
@@ -402,14 +408,18 @@ with st.expander("Add Cards"):
                 if dt_cards:
                     progress_bar = st.progress(0, text="Looking up cards...")
                     total = len(dt_cards)
+                    imported = []
                     for i, c in enumerate(dt_cards):
                         progress_bar.progress((i + 1) / total, text=f"Looking up {i + 1}/{total}: {c.name}")
-                        _, url = search_tcgplayer(c)
+                        price, url = search_tcgplayer(c)
+                        c.market_price = price
                         c.tcgplayer_url = url
                         add_card(c)
+                        imported.append({"name": c.name, "number": c.number, "quantity": c.quantity})
                     progress_bar.progress(1.0, text="Done!")
                     st.session_state.decktradr_form_key += 1
                     st.session_state.decktradr_success = len(dt_cards)
+                    st.session_state.last_import = imported
                     st.rerun()
                 else:
                     st.error("No valid cards found in CSV.")
@@ -418,6 +428,15 @@ with st.expander("Add Cards"):
             st.success(f"Successfully added {st.session_state.decktradr_success} cards to collection!")
             st.balloons()
             del st.session_state.decktradr_success
+
+    # Rollback last CSV/DeckTradr import
+    if st.session_state.get("last_import"):
+        n = len(st.session_state.last_import)
+        if st.button(f"Undo last import ({n} cards)", type="secondary"):
+            rolled = rollback_import(st.session_state.last_import)
+            del st.session_state.last_import
+            st.toast(f"Rolled back {rolled} cards")
+            st.rerun()
 
     with tab_excel:
         uploaded = st.file_uploader("Upload spreadsheet (.xlsx)", type=["xlsx"], key="import_xlsx")
