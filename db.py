@@ -12,6 +12,7 @@ from supabase import create_client, Client
 from models import Card
 
 TABLE = "cards"
+TX_TABLE = "transactions"
 
 
 # ── Client ────────────────────────────────────────────────────────────────────
@@ -250,3 +251,69 @@ def seed_from_excel(filepath: str) -> int:
         cards.append(Card(name=name, number=number, quantity=quantity))
 
     return add_cards_bulk(cards)
+
+
+# ── Transactions ─────────────────────────────────────────────────────────────
+
+
+def log_transaction(
+    tx_type: str, card_name: str, card_number: str, quantity: int, amount: float
+) -> None:
+    """Insert a row into the transactions table."""
+    sb = _get_client()
+    sb.table(TX_TABLE).insert({
+        "type": tx_type,
+        "card_name": card_name,
+        "card_number": card_number,
+        "quantity": quantity,
+        "amount": amount,
+    }).execute()
+
+
+def get_transactions(limit: int = 50) -> list[dict]:
+    """Return recent transactions ordered by created_at DESC."""
+    sb = _get_client()
+    resp = (
+        sb.table(TX_TABLE)
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return resp.data
+
+
+def buy_card(card_name: str, card_number: str, quantity: int, amount: float) -> None:
+    """Add/increment card in inventory and log a buy transaction."""
+    add_card(Card(name=card_name, number=card_number, quantity=quantity))
+    log_transaction("buy", card_name, card_number, quantity, amount)
+
+
+def sell_card(card_name: str, card_number: str, quantity: int, amount: float) -> str | None:
+    """Decrement card qty (delete if 0) and log a sell transaction.
+
+    Returns an error message string if the sale can't be completed, else None.
+    """
+    sb = _get_client()
+    resp = (
+        sb.table(TABLE)
+        .select("id, quantity")
+        .eq("name", card_name)
+        .eq("number", card_number)
+        .execute()
+    )
+    if not resp.data:
+        return f"Card not found: {card_name} {card_number}"
+
+    existing = resp.data[0]
+    if existing["quantity"] < quantity:
+        return f"Insufficient qty: have {existing['quantity']}, tried to sell {quantity}"
+
+    new_qty = existing["quantity"] - quantity
+    if new_qty == 0:
+        sb.table(TABLE).delete().eq("id", existing["id"]).execute()
+    else:
+        sb.table(TABLE).update({"quantity": new_qty}).eq("id", existing["id"]).execute()
+
+    log_transaction("sell", card_name, card_number, quantity, amount)
+    return None

@@ -18,6 +18,9 @@ from db import (
     delete_cards,
     seed_from_excel,
     card_count,
+    buy_card,
+    sell_card,
+    get_transactions,
 )
 
 st.set_page_config(page_title="Pokemon Card Inventory", layout="wide")
@@ -130,6 +133,63 @@ c1.metric("Unique Cards", len(cards))
 c2.metric("Total Cards", total_qty)
 c3.metric("Priced", f"{len(priced)}/{len(cards)}")
 c4.metric("Total Value", f"${total_value:.2f}")
+
+
+# ── Log Transaction ──────────────────────────────────────────────────────────
+
+with st.expander("Log Transaction"):
+    if "tx_form_key" not in st.session_state:
+        st.session_state.tx_form_key = 0
+    tk = st.session_state.tx_form_key
+
+    tx_type = st.radio("Type", ["Buy", "Sell"], horizontal=True, key=f"tx_type_{tk}")
+
+    tc1, tc2, tc3, tc4 = st.columns([3, 2, 1, 1])
+    with tc1:
+        tx_name = st.text_input("Card Name *", key=f"tx_name_{tk}")
+    with tc2:
+        tx_number = st.text_input("Card Number", key=f"tx_number_{tk}")
+    with tc3:
+        tx_qty = st.number_input("Qty", min_value=1, value=1, step=1, key=f"tx_qty_{tk}")
+    with tc4:
+        tx_amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=0.01,
+                                     format="%.2f", key=f"tx_amount_{tk}")
+
+    if st.button("Log Transaction", type="primary"):
+        if tx_name.strip():
+            if tx_type == "Buy":
+                buy_card(tx_name.strip(), tx_number.strip(), tx_qty, round(tx_amount, 2))
+                st.toast(f"Logged buy: {tx_qty}x {tx_name.strip()}")
+                st.session_state.tx_form_key += 1
+                st.rerun()
+            else:
+                err = sell_card(tx_name.strip(), tx_number.strip(), tx_qty, round(tx_amount, 2))
+                if err:
+                    st.error(err)
+                else:
+                    st.toast(f"Logged sale: {tx_qty}x {tx_name.strip()}")
+                    st.session_state.tx_form_key += 1
+                    st.rerun()
+        else:
+            st.error("Card name is required.")
+
+    # Recent transactions table
+    recent_tx = get_transactions(limit=20)
+    if recent_tx:
+        st.subheader("Recent Transactions")
+        tx_df = pd.DataFrame(recent_tx)
+        tx_df = tx_df[["created_at", "type", "card_name", "card_number", "quantity", "amount"]]
+        tx_df.columns = ["Date", "Type", "Card Name", "Number", "Qty", "Amount"]
+        tx_df["Date"] = pd.to_datetime(tx_df["Date"]).dt.strftime("%Y-%m-%d %H:%M")
+        tx_df["Type"] = tx_df["Type"].str.capitalize()
+        tx_df["Amount"] = tx_df["Amount"].apply(lambda x: f"${x:.2f}")
+
+        def style_tx(row):
+            color = "#ccffcc" if row["Type"] == "Buy" else "#ffcccc"
+            return [f"background-color: {color}"] * len(row)
+
+        styled_tx = tx_df.style.apply(style_tx, axis=1)
+        st.dataframe(styled_tx, use_container_width=True, hide_index=True)
 
 
 # ── Add Cards ────────────────────────────────────────────────────────────────
