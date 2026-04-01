@@ -285,8 +285,14 @@ with st.expander("Add Cards"):
                     csv_cards.append(Card(name=name, number=number, quantity=1, market_price=price))
 
                 if csv_cards:
-                    for c in csv_cards:
+                    progress_bar = st.progress(0, text="Looking up cards...")
+                    total = len(csv_cards)
+                    for i, c in enumerate(csv_cards):
+                        progress_bar.progress((i + 1) / total, text=f"Looking up {i + 1}/{total}: {c.name}")
+                        _, url = search_tcgplayer(c)
+                        c.tcgplayer_url = url
                         add_card(c)
+                    progress_bar.progress(1.0, text="Done!")
                     st.session_state.csv_form_key += 1
                     st.session_state.csv_success = len(csv_cards)
                     st.rerun()
