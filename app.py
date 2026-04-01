@@ -135,7 +135,7 @@ c4.metric("Total Value", f"${total_value:.2f}")
 # ── Add Cards ────────────────────────────────────────────────────────────────
 
 with st.expander("Add Cards"):
-    tab_manual, tab_excel = st.tabs(["Manual", "Excel Import"])
+    tab_manual, tab_csv, tab_excel = st.tabs(["Manual", "TCGPlayer CSV", "Excel Import"])
 
     with tab_manual:
         # Track checked price and form reset counter
@@ -247,6 +247,48 @@ with st.expander("Add Cards"):
                 st.rerun()
             else:
                 st.error("Card name is required.")
+
+    with tab_csv:
+        csv_file = st.file_uploader("Upload TCGPlayer CSV", type=["csv"], key="import_csv")
+        if csv_file is not None:
+            csv_df = pd.read_csv(csv_file)
+            st.dataframe(csv_df, use_container_width=True, height=200)
+
+            if st.button("Add to Collection", type="primary", key="csv_add"):
+                csv_cards = []
+                for _, row in csv_df.iterrows():
+                    raw_name = str(row.get("Product Name", "")).strip()
+                    if not raw_name:
+                        continue
+                    # Strip number suffix like "Galvantula ex - 168/142" → "Galvantula ex"
+                    name = raw_name.rsplit(" - ", 1)[0].strip() if " - " in raw_name else raw_name
+
+                    number = ""
+                    if "Number" in csv_df.columns and pd.notna(row.get("Number")):
+                        raw = row["Number"]
+                        if isinstance(raw, float) and raw == int(raw):
+                            number = str(int(raw))
+                        else:
+                            number = str(raw).strip()
+
+                    price = None
+                    if "TCG Market Price" in csv_df.columns and pd.notna(row.get("TCG Market Price")):
+                        try:
+                            price = round(float(row["TCG Market Price"]), 2)
+                        except (ValueError, TypeError):
+                            pass
+
+                    csv_cards.append(Card(name=name, number=number, quantity=1, market_price=price))
+
+                if csv_cards:
+                    added = 0
+                    for c in csv_cards:
+                        add_card(c)
+                        added += 1
+                    st.toast(f"Added {added} cards to collection")
+                    st.rerun()
+                else:
+                    st.error("No valid cards found in CSV.")
 
     with tab_excel:
         uploaded = st.file_uploader("Upload spreadsheet (.xlsx)", type=["xlsx"], key="import_xlsx")
