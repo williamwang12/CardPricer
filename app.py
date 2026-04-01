@@ -109,6 +109,23 @@ def export_excel(cards: list[Card]) -> bytes:
     return buf.getvalue()
 
 
+def export_price_list(cards: list[Card]) -> bytes:
+    """Export a simple price list: Card (name #number) and Market Price."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Price List"
+
+    ws.append(["Card", "Market Price"])
+
+    for c in cards:
+        label = f"{c.name} #{c.number}" if c.number else c.name
+        ws.append([label, c.market_price])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 # ── Seed DB on first boot ────────────────────────────────────────────────────
 
 if "seeded" not in st.session_state:
@@ -632,14 +649,24 @@ else:
 
 if cards:
     with st.expander("Export"):
-        # Excel download
-        excel_bytes = export_excel(cards)
-        st.download_button(
-            label="Download Inventory (.xlsx)",
-            data=excel_bytes,
-            file_name="inventory.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        # Excel downloads
+        ec1, ec2 = st.columns(2)
+        with ec1:
+            excel_bytes = export_excel(cards)
+            st.download_button(
+                label="Download Inventory (.xlsx)",
+                data=excel_bytes,
+                file_name="inventory.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        with ec2:
+            price_bytes = export_price_list(cards)
+            st.download_button(
+                label="Download Price List (.xlsx)",
+                data=price_bytes,
+                file_name="price_list.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
 
         # Sticker sheet
         st.subheader("Sticker Sheet")
