@@ -76,8 +76,12 @@ def add_card(card: Card) -> None:
     )
     if resp.data:
         existing = resp.data[0]
-        new_qty = existing["quantity"] + card.quantity
-        sb.table(TABLE).update({"quantity": new_qty}).eq("id", existing["id"]).execute()
+        updates = {"quantity": existing["quantity"] + card.quantity}
+        if card.tcgplayer_url:
+            updates["tcgplayer_url"] = card.tcgplayer_url
+        if card.market_price is not None:
+            updates["market_price"] = card.market_price
+        sb.table(TABLE).update(updates).eq("id", existing["id"]).execute()
     else:
         sb.table(TABLE).insert({
             "name": card.name,
