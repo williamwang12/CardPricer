@@ -422,8 +422,20 @@ if cards:
     if manual_count:
         label += f" ({manual_count} manual skipped)"
 
-    if st.button(label):
+    rp1, rp2 = st.columns([1, 3])
+    with rp1:
+        do_reprice = st.button(label)
+    with rp2:
+        price_alert_threshold = st.number_input(
+            "Price alert threshold ($)", min_value=0.0, value=1.0, step=0.50,
+            format="%.2f", key="price_alert_threshold",
+        )
+
+    if do_reprice:
         if auto_cards:
+            # Save old prices for comparison
+            old_prices = {c.id: c.market_price for c in auto_cards}
+
             progress_bar = st.progress(0, text="Starting...")
             status_text = st.empty()
 
@@ -439,10 +451,45 @@ if cards:
             status_text.empty()
 
             update_prices(auto_cards)
+
+            # Find cards with significant price movement
+            movers = []
+            for c in auto_cards:
+                old = old_prices.get(c.id)
+                new = c.market_price
+                if old is not None and new is not None:
+                    diff = new - old
+                    if abs(diff) >= price_alert_threshold:
+                        movers.append({"Name": c.name, "Number": c.number,
+                                       "Old Price": old, "New Price": new,
+                                       "Change": diff})
+
+            st.session_state.price_movers = movers
             st.toast(f"Repriced {len(auto_cards)} cards!")
         else:
             st.toast("All cards have manual prices — nothing to reprice.")
         st.rerun()
+
+    # Show price movement alerts after reprice
+    if st.session_state.get("price_movers"):
+        movers = st.session_state.price_movers
+        st.subheader(f"Price Alerts ({len(movers)} cards)")
+
+        movers_df = pd.DataFrame(movers)
+
+        def highlight_movers(row):
+            if row["Change"] > 0:
+                return ["background-color: #ffcccc"] * len(row)  # red = price went up
+            else:
+                return ["background-color: #ccffcc"] * len(row)  # green = price went down
+
+        styled = movers_df.style.apply(highlight_movers, axis=1).format({
+            "Old Price": "${:.2f}",
+            "New Price": "${:.2f}",
+            "Change": "${:+.2f}",
+        })
+        st.dataframe(styled, use_container_width=True)
+        del st.session_state.price_movers
 
 else:
     st.info("No cards in inventory. Add some above!")
