@@ -195,7 +195,7 @@ with st.expander("Log Transaction"):
 # ── Add Cards ────────────────────────────────────────────────────────────────
 
 with st.expander("Add Cards"):
-    tab_manual, tab_csv, tab_excel = st.tabs(["Manual", "TCGPlayer CSV", "Excel Import"])
+    tab_manual, tab_csv, tab_decktradr, tab_excel = st.tabs(["Manual", "TCGPlayer CSV", "DeckTradr CSV", "Excel Import"])
 
     with tab_manual:
         # Track checked price and form reset counter
@@ -364,6 +364,62 @@ with st.expander("Add Cards"):
             st.success(f"Successfully added {st.session_state.csv_success} cards to collection!")
             st.balloons()
             del st.session_state.csv_success
+
+    with tab_decktradr:
+        if "decktradr_form_key" not in st.session_state:
+            st.session_state.decktradr_form_key = 0
+        dk = st.session_state.decktradr_form_key
+
+        dt_file = st.file_uploader("Upload DeckTradr CSV", type=["csv"], key=f"import_decktradr_{dk}")
+        if dt_file is not None:
+            dt_df = pd.read_csv(dt_file)
+            # Strip extra quotes DeckTradr wraps values in
+            for col in dt_df.columns:
+                if dt_df[col].dtype == object:
+                    dt_df[col] = dt_df[col].str.strip('"')
+
+            st.dataframe(dt_df[["Card Name", "Number", "Quantity"]].head(50),
+                         use_container_width=True, height=200)
+
+            if st.button("Add to Collection", type="primary", key=f"decktradr_add_{dk}"):
+                dt_cards = []
+                for _, row in dt_df.iterrows():
+                    name = str(row.get("Card Name", "")).strip()
+                    if not name:
+                        continue
+
+                    number = ""
+                    if pd.notna(row.get("Number")):
+                        number = str(row["Number"]).strip()
+
+                    quantity = 1
+                    if pd.notna(row.get("Quantity")):
+                        try:
+                            quantity = int(row["Quantity"])
+                        except (ValueError, TypeError):
+                            quantity = 1
+
+                    dt_cards.append(Card(name=name, number=number, quantity=quantity))
+
+                if dt_cards:
+                    progress_bar = st.progress(0, text="Looking up cards...")
+                    total = len(dt_cards)
+                    for i, c in enumerate(dt_cards):
+                        progress_bar.progress((i + 1) / total, text=f"Looking up {i + 1}/{total}: {c.name}")
+                        _, url = search_tcgplayer(c)
+                        c.tcgplayer_url = url
+                        add_card(c)
+                    progress_bar.progress(1.0, text="Done!")
+                    st.session_state.decktradr_form_key += 1
+                    st.session_state.decktradr_success = len(dt_cards)
+                    st.rerun()
+                else:
+                    st.error("No valid cards found in CSV.")
+
+        if st.session_state.get("decktradr_success"):
+            st.success(f"Successfully added {st.session_state.decktradr_success} cards to collection!")
+            st.balloons()
+            del st.session_state.decktradr_success
 
     with tab_excel:
         uploaded = st.file_uploader("Upload spreadsheet (.xlsx)", type=["xlsx"], key="import_xlsx")
