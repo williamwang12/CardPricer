@@ -372,11 +372,11 @@ with st.expander("Add Cards"):
 
         dt_file = st.file_uploader("Upload DeckTradr CSV", type=["csv"], key=f"import_decktradr_{dk}")
         if dt_file is not None:
-            dt_df = pd.read_csv(dt_file)
-            # Strip extra quotes DeckTradr wraps values in
+            dt_df = pd.read_csv(dt_file, quoting=3)  # QUOTE_NONE — DeckTradr triple-quotes values
+            # Strip all stray quotes from string columns
             for col in dt_df.columns:
                 if dt_df[col].dtype == object:
-                    dt_df[col] = dt_df[col].str.strip('"')
+                    dt_df[col] = dt_df[col].str.replace('"', '', regex=False).str.strip()
 
             st.dataframe(dt_df[["Card Name", "Number", "Quantity"]].head(50),
                          use_container_width=True, height=200)
