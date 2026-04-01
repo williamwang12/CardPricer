@@ -24,7 +24,7 @@ from db import (
     rollback_import,
 )
 
-st.set_page_config(page_title="Pokemon Card Inventory", layout="wide")
+st.set_page_config(page_title="Pokemon Raw Card Inventory", layout="wide")
 
 # ── Password gate ────────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ def check_password() -> bool:
     if st.session_state.get("authenticated"):
         return True
 
-    st.title("Pokemon Card Inventory")
+    st.title("Pokemon Raw Card Inventory")
     password = st.text_input("Password", type="password", key="login_pw")
     if st.button("Log in", type="primary"):
         if password == st.secrets.get("APP_PASSWORD", ""):
@@ -46,7 +46,7 @@ def check_password() -> bool:
 if not check_password():
     st.stop()
 
-st.title("Pokemon Card Inventory")
+st.title("Pokemon Raw Card Inventory")
 st.caption("Track your collection, update prices from TCGPlayer, and export.")
 
 
