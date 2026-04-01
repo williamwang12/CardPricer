@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
 import streamlit as st
@@ -344,4 +345,27 @@ def rollback_import(imported: list[dict]) -> int:
         else:
             sb.table(TABLE).update({"quantity": new_qty}).eq("id", existing["id"]).execute()
         count += 1
+    return count
+
+
+_UPPERCASE_KEYWORDS = re.compile(r'\b(ex|vstar|vmax)\b', re.IGNORECASE)
+
+
+def _normalize_name(name: str) -> str:
+    """Title-case a card name, then uppercase EX/VSTAR/VMAX."""
+    name = name.title()
+    name = _UPPERCASE_KEYWORDS.sub(lambda m: m.group().upper(), name)
+    return name
+
+
+def massage_names() -> int:
+    """Normalize all card names in the DB. Returns count updated."""
+    sb = _get_client()
+    resp = sb.table(TABLE).select("id, name").execute()
+    count = 0
+    for row in resp.data:
+        new_name = _normalize_name(row["name"])
+        if new_name != row["name"]:
+            sb.table(TABLE).update({"name": new_name}).eq("id", row["id"]).execute()
+            count += 1
     return count

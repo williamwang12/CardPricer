@@ -22,6 +22,7 @@ from db import (
     sell_card,
     get_transactions,
     rollback_import,
+    massage_names,
 )
 
 st.set_page_config(page_title="Pokemon Raw Card Inventory", layout="wide")
@@ -553,15 +554,23 @@ if cards:
 
     has_changes = bool(field_edits) or bool(delete_indices)
 
-    if st.button("Save Changes", type="primary", disabled=not has_changes):
-        num_updated, num_deleted = save_edits(field_edits, delete_indices, cards)
-        parts = []
-        if num_updated:
-            parts.append(f"{num_updated} updated")
-        if num_deleted:
-            parts.append(f"{num_deleted} deleted")
-        st.toast("Saved: " + ", ".join(parts) if parts else "No changes")
-        st.rerun()
+    sb1, sb2, _ = st.columns([1, 1, 4])
+    with sb1:
+        if st.button("Save Changes", type="primary", disabled=not has_changes):
+            num_updated, num_deleted = save_edits(field_edits, delete_indices, cards)
+            parts = []
+            if num_updated:
+                parts.append(f"{num_updated} updated")
+            if num_deleted:
+                parts.append(f"{num_deleted} deleted")
+            st.toast("Saved: " + ", ".join(parts) if parts else "No changes")
+            st.rerun()
+    with sb2:
+        if st.button("Fix Card Names"):
+            n = massage_names()
+            st.toast(f"Fixed {n} card names" if n else "All names already clean")
+            if n:
+                st.rerun()
 
     st.divider()
 
