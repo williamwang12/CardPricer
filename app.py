@@ -96,7 +96,7 @@ def export_excel(cards: list[Card]) -> bytes:
 
     for c in cards:
         label = f"{c.name} #{c.number}" if c.number else c.name
-        price = f"${c.market_price:.2f}" if c.market_price is not None else ""
+        price = f"${round(c.market_price)}" if c.market_price is not None else ""
         ws.append([label, price])
 
     buf = io.BytesIO()
