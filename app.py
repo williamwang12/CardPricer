@@ -92,18 +92,12 @@ def export_excel(cards: list[Card]) -> bytes:
     ws = wb.active
     ws.title = "Inventory"
 
-    headers = ["Name", "Number", "Qty", "Market Price", "Total Value", "TCGPlayer URL"]
-    ws.append(headers)
+    ws.append(["Card", "Market Price"])
 
     for c in cards:
-        ws.append([
-            c.name,
-            c.number,
-            c.quantity,
-            c.market_price,
-            c.total_value(),
-            c.tcgplayer_url or "",
-        ])
+        label = f"{c.name} #{c.number}" if c.number else c.name
+        price = f"${c.market_price:.2f}" if c.market_price is not None else ""
+        ws.append([label, price])
 
     buf = io.BytesIO()
     wb.save(buf)
