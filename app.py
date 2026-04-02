@@ -648,6 +648,23 @@ if cards:
             "Change": "${:+.2f}",
         })
         st.dataframe(styled, use_container_width=True)
+
+        # Export movers as price list
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Price Movers"
+        ws.append(["Card", "Market Price"])
+        for m in movers:
+            label = f"{m['Name']} #{m['Number']}" if m["Number"] else m["Name"]
+            ws.append([label, m["New Price"]])
+        buf = io.BytesIO()
+        wb.save(buf)
+        st.download_button(
+            label="Download Price Movers (.xlsx)",
+            data=buf.getvalue(),
+            file_name="price_movers.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
         del st.session_state.price_movers
 
 else:
