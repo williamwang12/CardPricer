@@ -638,9 +638,9 @@ if cards:
 
         def highlight_movers(row):
             if row["Change"] > 0:
-                return ["background-color: #ffcccc"] * len(row)  # red = price went up
+                return ["background-color: #ccffcc"] * len(row)  # green = price went up
             else:
-                return ["background-color: #ccffcc"] * len(row)  # green = price went down
+                return ["background-color: #ffcccc"] * len(row)  # red = price went down
 
         styled = movers_df.style.apply(highlight_movers, axis=1).format({
             "Old Price": "${:.2f}",
