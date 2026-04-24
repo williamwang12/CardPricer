@@ -87,7 +87,11 @@ def cards_from_df(
 
 
 def export_excel(cards: list[Card]) -> bytes:
-    """Export cards to an Excel file and return as bytes."""
+    """Export cards to an Excel file and return as bytes.
+
+    Only includes cards with market_price > $1.
+    Each card row is repeated by its quantity.
+    """
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Inventory"
@@ -95,9 +99,12 @@ def export_excel(cards: list[Card]) -> bytes:
     ws.append(["Card", "Market Price"])
 
     for c in cards:
+        if c.market_price is None or c.market_price <= 1:
+            continue
         label = f"{c.name} #{c.number}" if c.number else c.name
-        price = f"${round(c.market_price)}" if c.market_price is not None else ""
-        ws.append([label, price])
+        price = f"${round(c.market_price)}"
+        for _ in range(c.quantity):
+            ws.append([label, price])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -123,16 +130,27 @@ def export_price_list(cards: list[Card]) -> bytes:
 
 # ── Seed DB on first boot ────────────────────────────────────────────────────
 
-if "seeded" not in st.session_state:
-    n = seed_from_excel("ExistingInventory.xlsx")
-    if n > 0:
-        st.toast(f"Imported {n} cards from ExistingInventory.xlsx")
-    st.session_state.seeded = True
+try:
+    if "seeded" not in st.session_state:
+        n = seed_from_excel("ExistingInventory.xlsx")
+        if n > 0:
+            st.toast(f"Imported {n} cards from ExistingInventory.xlsx")
+        st.session_state.seeded = True
 
 
-# ── Load inventory ───────────────────────────────────────────────────────────
+    # ── Load inventory ───────────────────────────────────────────────────────────
 
-cards = load_all_cards()
+    cards = load_all_cards()
+except Exception as e:
+    if "ConnectError" in type(e).__name__ or "ConnectError" in str(type(e)):
+        st.error(
+            "Could not connect to the database. If you're on the Supabase free tier, "
+            "your project may have been paused — visit https://supabase.com/dashboard "
+            "to resume it, then refresh this page."
+        )
+    else:
+        st.error(f"Database error: {e}")
+    st.stop()
 
 
 # ── Stats bar ────────────────────────────────────────────────────────────────

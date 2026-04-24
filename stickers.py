@@ -179,7 +179,7 @@ def generate_sticker_pdf(
 
     stickers: list[Card] = []
     for card in cards:
-        if card.market_price is not None:
+        if card.market_price is not None and card.market_price > 1:
             stickers.extend([card] * card.quantity)
 
     buf = io.BytesIO()
@@ -214,5 +214,5 @@ def labels_per_page(label_format: str = "avery5167") -> int:
 
 
 def sticker_count(cards: list[Card]) -> int:
-    """Return total number of stickers (expanded by quantity) for priced cards."""
-    return sum(c.quantity for c in cards if c.market_price is not None)
+    """Return total number of stickers (expanded by quantity) for cards above $1."""
+    return sum(c.quantity for c in cards if c.market_price is not None and c.market_price > 1)
