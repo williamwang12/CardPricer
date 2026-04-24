@@ -99,7 +99,7 @@ def export_excel(cards: list[Card]) -> bytes:
     ws.append(["Card", "Market Price"])
 
     for c in cards:
-        if c.market_price is None or c.market_price <= 1:
+        if c.market_price is None or round(c.market_price) <= 1:
             continue
         label = f"{c.name} #{c.number}" if c.number else c.name
         price = f"${round(c.market_price)}"
