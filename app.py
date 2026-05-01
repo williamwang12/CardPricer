@@ -666,7 +666,7 @@ if cards:
 
     has_changes = bool(field_edits) or bool(delete_indices)
 
-    sb1, sb2, _ = st.columns([1, 1, 4])
+    sb1, sb2, sb3, _ = st.columns([1, 1, 1, 3])
     with sb1:
         if st.button("Save Changes", type="primary", disabled=not has_changes):
             num_updated, num_deleted = save_edits(field_edits, delete_indices, cards)
@@ -683,6 +683,12 @@ if cards:
             st.toast(f"Fixed {n} card names" if n else "All names already clean")
             if n:
                 st.rerun()
+    with sb3:
+        confirm_delete_all = st.checkbox("Confirm", key="confirm_delete_all")
+        if st.button("Delete All", type="secondary", disabled=not confirm_delete_all):
+            replace_all_cards([])
+            st.toast("Deleted all cards from inventory")
+            st.rerun()
 
     st.divider()
 
@@ -787,10 +793,42 @@ else:
 
 if cards:
     with st.expander("Export"):
+        # Build selectable export table
+        export_data = []
+        for c in cards:
+            export_data.append({
+                "Include": True,
+                "Name": c.name,
+                "Number": c.number,
+                "Qty": c.quantity,
+                "Market Price": c.market_price,
+            })
+        export_df = pd.DataFrame(export_data)
+
+        export_edited = st.data_editor(
+            export_df,
+            use_container_width=True,
+            disabled=["Name", "Number", "Qty", "Market Price"],
+            column_config={
+                "Include": st.column_config.CheckboxColumn("Include", default=True),
+                "Name": st.column_config.TextColumn("Name"),
+                "Number": st.column_config.TextColumn("Number"),
+                "Qty": st.column_config.NumberColumn("Qty"),
+                "Market Price": st.column_config.NumberColumn("Market Price", format="$%.2f"),
+            },
+            key="export_editor",
+        )
+
+        # Filter cards based on Include checkbox
+        included_indices = export_edited[export_edited["Include"]].index.tolist()
+        export_cards = [cards[i] for i in included_indices]
+
+        st.caption(f"{len(export_cards)}/{len(cards)} cards selected for export")
+
         # Excel downloads
         ec1, ec2 = st.columns(2)
         with ec1:
-            excel_bytes = export_excel(cards)
+            excel_bytes = export_excel(export_cards)
             st.download_button(
                 label="Download Inventory (.xlsx)",
                 data=excel_bytes,
@@ -798,7 +836,7 @@ if cards:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         with ec2:
-            price_bytes = export_price_list(cards)
+            price_bytes = export_price_list(export_cards)
             st.download_button(
                 label="Download Price List (.xlsx)",
                 data=price_bytes,
@@ -829,14 +867,14 @@ if cards:
         else:
             logo_bytes = None
 
-        total_stickers = sticker_count(cards)
+        total_stickers = sticker_count(export_cards)
         per_page = labels_per_page(selected_format)
         num_sheets = (total_stickers + per_page - 1) // per_page if total_stickers > 0 else 0
         st.info(f"{total_stickers} sticker{'s' if total_stickers != 1 else ''}, "
                 f"{num_sheets} sheet{'s' if num_sheets != 1 else ''}")
 
         if total_stickers > 0:
-            pdf_bytes = generate_sticker_pdf(cards, logo_bytes, label_format=selected_format)
+            pdf_bytes = generate_sticker_pdf(export_cards, logo_bytes, label_format=selected_format)
             st.download_button(
                 label="Download Sticker Sheet (PDF)",
                 data=pdf_bytes,
