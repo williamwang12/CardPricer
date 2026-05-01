@@ -348,6 +348,57 @@ def rollback_import(imported: list[dict]) -> int:
     return count
 
 
+def sync_collectr(collectr_cards: list[Card]) -> tuple[int, int, int]:
+    """Sync inventory to match a Collectr CSV import.
+
+    - Matched cards (by lowercase name + number): update quantity, fill in price if missing.
+    - New cards: insert.
+    - Cards in DB but not in Collectr: delete.
+
+    Returns (matched, added, removed).
+    """
+    sb = _get_client()
+    existing = load_all_cards()
+
+    # Build lookup: (name_lower, number) → Card
+    existing_lookup: dict[tuple[str, str], Card] = {}
+    for c in existing:
+        existing_lookup[(c.name.lower(), c.number)] = c
+
+    matched_ids: set[int] = set()
+    matched = 0
+    added = 0
+
+    for cc in collectr_cards:
+        key = (cc.name.lower(), cc.number)
+        ex = existing_lookup.get(key)
+        if ex and ex.id is not None:
+            # Update quantity; fill price if existing has none
+            updates: dict = {"quantity": cc.quantity}
+            if ex.market_price is None and cc.market_price is not None:
+                updates["market_price"] = cc.market_price
+            sb.table(TABLE).update(updates).eq("id", ex.id).execute()
+            matched_ids.add(ex.id)
+            matched += 1
+        else:
+            sb.table(TABLE).insert({
+                "name": cc.name,
+                "number": cc.number,
+                "quantity": cc.quantity,
+                "market_price": cc.market_price,
+            }).execute()
+            added += 1
+
+    # Remove cards not present in Collectr
+    removed = 0
+    for c in existing:
+        if c.id is not None and c.id not in matched_ids:
+            sb.table(TABLE).delete().eq("id", c.id).execute()
+            removed += 1
+
+    return matched, added, removed
+
+
 _UPPERCASE_KEYWORDS = re.compile(r'\b(ex|vstar|vmax)\b', re.IGNORECASE)
 
 

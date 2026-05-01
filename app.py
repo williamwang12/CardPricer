@@ -1,5 +1,6 @@
 import io
 import os
+import re
 from typing import Optional
 
 import streamlit as st
@@ -23,6 +24,7 @@ from db import (
     get_transactions,
     rollback_import,
     massage_names,
+    sync_collectr,
 )
 
 st.set_page_config(page_title="Pokemon Raw Card Inventory", layout="wide")
@@ -128,6 +130,22 @@ def export_price_list(cards: list[Card]) -> bytes:
     return buf.getvalue()
 
 
+def extract_pokemon_name(product_name: str) -> str:
+    """Extract the Pokemon name from a Collectr Product Name.
+
+    Examples:
+        'Charizard VSTAR (Secret)' → 'Charizard VSTAR'
+        'Flareon ex - 014/131 (Prismatic Evolutions Stamp)' → 'Flareon ex'
+        'Lugia V (Alternate Full Art)' → 'Lugia V'
+        'Mega Gengar ex' → 'Mega Gengar ex'
+    """
+    # Strip " - ..." suffix (e.g. "Flareon ex - 014/131 (...)")
+    name = product_name.split(" - ", 1)[0].strip()
+    # Strip trailing parenthetical like (Secret), (Full Art), (JP), etc.
+    name = re.sub(r"\s*\([^)]*\)\s*$", "", name).strip()
+    return name
+
+
 # ── Seed DB on first boot ────────────────────────────────────────────────────
 
 try:
@@ -226,7 +244,9 @@ with st.expander("Log Transaction"):
 # ── Add Cards ────────────────────────────────────────────────────────────────
 
 with st.expander("Add Cards"):
-    tab_manual, tab_csv, tab_decktradr, tab_excel = st.tabs(["Manual", "TCGPlayer CSV", "DeckTradr CSV", "Excel Import"])
+    tab_manual, tab_csv, tab_decktradr, tab_collectr, tab_excel = st.tabs(
+        ["Manual", "TCGPlayer CSV", "DeckTradr CSV", "Collectr CSV", "Excel Import"]
+    )
 
     with tab_manual:
         # Track checked price and form reset counter
@@ -458,6 +478,86 @@ with st.expander("Add Cards"):
             st.success(f"Successfully added {st.session_state.decktradr_success} cards to collection!")
             st.balloons()
             del st.session_state.decktradr_success
+
+    with tab_collectr:
+        if "collectr_form_key" not in st.session_state:
+            st.session_state.collectr_form_key = 0
+        clk = st.session_state.collectr_form_key
+
+        collectr_file = st.file_uploader("Upload Collectr CSV", type=["csv"], key=f"import_collectr_{clk}")
+        if collectr_file is not None:
+            collectr_df = pd.read_csv(collectr_file)
+
+            # Parse cards from Collectr CSV
+            collectr_cards = []
+            for _, row in collectr_df.iterrows():
+                raw_name = str(row.get("Product Name", "")).strip()
+                if not raw_name:
+                    continue
+                name = extract_pokemon_name(raw_name)
+
+                number = ""
+                if "Card Number" in collectr_df.columns and pd.notna(row.get("Card Number")):
+                    raw = row["Card Number"]
+                    if isinstance(raw, float) and raw == int(raw):
+                        number = str(int(raw))
+                    else:
+                        number = str(raw).strip()
+
+                quantity = 1
+                if "Quantity" in collectr_df.columns and pd.notna(row.get("Quantity")):
+                    try:
+                        quantity = int(row["Quantity"])
+                    except (ValueError, TypeError):
+                        quantity = 1
+
+                price = None
+                # Market Price column name varies (includes date)
+                price_col = [c for c in collectr_df.columns if c.startswith("Market Price")]
+                if price_col:
+                    raw_price = row.get(price_col[0])
+                    if pd.notna(raw_price):
+                        try:
+                            price = round(float(str(raw_price).replace(",", "")), 2)
+                        except (ValueError, TypeError):
+                            pass
+
+                collectr_cards.append(Card(name=name, number=number, quantity=quantity, market_price=price))
+
+            # Build match preview against current inventory
+            existing_keys = {(c.name.lower(), c.number) for c in cards}
+            preview_data = []
+            for cc in collectr_cards:
+                matched = (cc.name.lower(), cc.number) in existing_keys
+                preview_data.append({
+                    "Name": cc.name,
+                    "Number": cc.number,
+                    "Qty": cc.quantity,
+                    "Price": f"${cc.market_price:.2f}" if cc.market_price else "",
+                    "Status": "Matched" if matched else "New",
+                })
+            preview_df = pd.DataFrame(preview_data)
+
+            matched_count = sum(1 for p in preview_data if p["Status"] == "Matched")
+            new_count = sum(1 for p in preview_data if p["Status"] == "New")
+            remove_count = len(cards) - matched_count
+
+            st.dataframe(preview_df, use_container_width=True, height=300)
+            st.info(
+                f"**{matched_count}** matched · **{new_count}** new · "
+                f"**{remove_count}** in current inventory will be removed"
+            )
+
+            if st.button("Sync Inventory", type="primary", key=f"collectr_sync_{clk}"):
+                m, a, r = sync_collectr(collectr_cards)
+                st.session_state.collectr_form_key += 1
+                st.session_state.collectr_result = (m, a, r)
+                st.rerun()
+
+        if st.session_state.get("collectr_result"):
+            m, a, r = st.session_state.collectr_result
+            st.success(f"Synced! **{m}** updated · **{a}** added · **{r}** removed")
+            del st.session_state.collectr_result
 
     # Rollback last CSV/DeckTradr import
     if st.session_state.get("last_import"):
