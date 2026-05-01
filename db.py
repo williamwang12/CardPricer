@@ -354,11 +354,25 @@ def sync_collectr(collectr_cards: list[Card]) -> tuple[int, int, int]:
     - Matched cards (by lowercase name + number): update quantity, fill in price if missing.
     - New cards: insert.
     - Cards in DB but not in Collectr: delete.
+    - Duplicate rows in the CSV (same name+number, different grade/variant)
+      are merged by summing quantities.
 
     Returns (matched, added, removed).
     """
     sb = _get_client()
     existing = load_all_cards()
+
+    # Merge duplicate Collectr rows (e.g. same card, different grade)
+    merged: dict[tuple[str, str], Card] = {}
+    for cc in collectr_cards:
+        key = (cc.name.lower(), cc.number)
+        if key in merged:
+            merged[key].quantity += cc.quantity
+        else:
+            merged[key] = Card(
+                name=cc.name, number=cc.number,
+                quantity=cc.quantity, market_price=cc.market_price,
+            )
 
     # Build lookup: (name_lower, number) → Card
     existing_lookup: dict[tuple[str, str], Card] = {}
@@ -369,8 +383,7 @@ def sync_collectr(collectr_cards: list[Card]) -> tuple[int, int, int]:
     matched = 0
     added = 0
 
-    for cc in collectr_cards:
-        key = (cc.name.lower(), cc.number)
+    for key, cc in merged.items():
         ex = existing_lookup.get(key)
         if ex and ex.id is not None:
             # Update quantity; fill price if existing has none
