@@ -793,11 +793,26 @@ else:
 
 if cards:
     with st.expander("Export"):
+        # Select / Deselect All toggle
+        if "export_select_all" not in st.session_state:
+            st.session_state.export_select_all = True
+
+        def toggle_select_all():
+            st.session_state.export_select_all = not st.session_state.export_select_all
+            # Reset the data editor so it picks up the new default
+            if "export_editor" in st.session_state:
+                del st.session_state["export_editor"]
+
+        st.button(
+            "Select All" if not st.session_state.export_select_all else "Deselect All",
+            on_click=toggle_select_all,
+        )
+
         # Build selectable export table
         export_data = []
         for c in cards:
             export_data.append({
-                "Include": True,
+                "Include": st.session_state.export_select_all,
                 "Name": c.name,
                 "Number": c.number,
                 "Qty": c.quantity,
