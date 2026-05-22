@@ -125,7 +125,8 @@ def export_price_list(cards: list[Card]) -> bytes:
     for c in cards:
         label = f"{c.name} #{c.number}" if c.number else c.name
         price = f"${math.ceil(c.market_price)}" if c.market_price is not None else ""
-        ws.append([label, price])
+        for _ in range(c.quantity):
+            ws.append([label, price])
 
     buf = io.BytesIO()
     wb.save(buf)
