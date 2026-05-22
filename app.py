@@ -818,11 +818,13 @@ if cards:
         if "export_select_all" not in st.session_state:
             st.session_state.export_select_all = True
 
-        def toggle_select_all():
-            st.session_state.export_select_all = not st.session_state.export_select_all
-            # Reset the data editor so it picks up the new default
+        def _reset_editor():
             if "export_editor" in st.session_state:
                 del st.session_state["export_editor"]
+
+        def toggle_select_all():
+            st.session_state.export_select_all = not st.session_state.export_select_all
+            _reset_editor()
 
         col_btn, col_thresh = st.columns([1, 1])
         with col_btn:
@@ -832,14 +834,16 @@ if cards:
             )
         with col_thresh:
             export_min_price = st.number_input(
-                "Minimum price ($)", min_value=0, value=0, step=1, key="export_min_price",
+                "Minimum price ($)", min_value=0, value=0, step=1,
+                key="export_min_price", on_change=_reset_editor,
             )
 
         # Build selectable export table
         export_data = []
         for c in cards:
+            above_threshold = (c.market_price or 0) >= export_min_price
             export_data.append({
-                "Include": st.session_state.export_select_all,
+                "Include": st.session_state.export_select_all and above_threshold,
                 "Name": c.name,
                 "Number": c.number,
                 "Qty": c.quantity,
@@ -861,12 +865,9 @@ if cards:
             key="export_editor",
         )
 
-        # Filter cards based on Include checkbox and minimum price
+        # Filter cards based on Include checkbox
         included_indices = export_edited[export_edited["Include"]].index.tolist()
-        export_cards = [
-            cards[i] for i in included_indices
-            if cards[i].market_price is not None and cards[i].market_price >= export_min_price
-        ]
+        export_cards = [cards[i] for i in included_indices]
 
         st.caption(f"{len(export_cards)}/{len(cards)} cards selected for export")
 
