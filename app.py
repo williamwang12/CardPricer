@@ -1,4 +1,5 @@
 import io
+import math
 import os
 import re
 from typing import Optional
@@ -123,7 +124,8 @@ def export_price_list(cards: list[Card]) -> bytes:
 
     for c in cards:
         label = f"{c.name} #{c.number}" if c.number else c.name
-        ws.append([label, c.market_price])
+        price = f"${math.ceil(c.market_price)}" if c.market_price is not None else ""
+        ws.append([label, price])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -524,6 +526,15 @@ with st.expander("Add Cards"):
 
                 collectr_cards.append(Card(name=name, number=number, quantity=quantity, market_price=price))
 
+            # Sync mode selector
+            sync_mode = st.radio(
+                "Sync mode",
+                ["Full sync (add & remove)", "Add only (keep existing)"],
+                key=f"collectr_mode_{clk}",
+                horizontal=True,
+            )
+            add_only = sync_mode == "Add only (keep existing)"
+
             # Build match preview against current inventory
             existing_keys = {(c.name.lower(), c.number) for c in cards}
             preview_data = []
@@ -543,13 +554,19 @@ with st.expander("Add Cards"):
             remove_count = len(cards) - matched_count
 
             st.dataframe(preview_df, use_container_width=True, height=300)
-            st.info(
-                f"**{matched_count}** matched · **{new_count}** new · "
-                f"**{remove_count}** in current inventory will be removed"
-            )
+            if add_only:
+                st.info(
+                    f"**{matched_count}** matched · **{new_count}** new · "
+                    f"**0** removed (add only mode)"
+                )
+            else:
+                st.info(
+                    f"**{matched_count}** matched · **{new_count}** new · "
+                    f"**{remove_count}** in current inventory will be removed"
+                )
 
             if st.button("Sync Inventory", type="primary", key=f"collectr_sync_{clk}"):
-                m, a, r = sync_collectr(collectr_cards)
+                m, a, r = sync_collectr(collectr_cards, add_only=add_only)
                 st.session_state.collectr_form_key += 1
                 st.session_state.collectr_result = (m, a, r)
                 st.rerun()
@@ -768,13 +785,17 @@ if cards:
         st.dataframe(styled, use_container_width=True)
 
         # Export movers as price list
+        movers_min_price = st.number_input(
+            "Minimum price ($)", min_value=0, value=0, step=1, key="movers_min_price",
+        )
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Price Movers"
         ws.append(["Card", "Market Price"])
         for m in movers:
-            label = f"{m['Name']} #{m['Number']}" if m["Number"] else m["Name"]
-            ws.append([label, m["New Price"]])
+            if m["New Price"] is not None and m["New Price"] >= movers_min_price:
+                label = f"{m['Name']} #{m['Number']}" if m["Number"] else m["Name"]
+                ws.append([label, m["New Price"]])
         buf = io.BytesIO()
         wb.save(buf)
         st.download_button(
@@ -803,10 +824,16 @@ if cards:
             if "export_editor" in st.session_state:
                 del st.session_state["export_editor"]
 
-        st.button(
-            "Select All" if not st.session_state.export_select_all else "Deselect All",
-            on_click=toggle_select_all,
-        )
+        col_btn, col_thresh = st.columns([1, 1])
+        with col_btn:
+            st.button(
+                "Select All" if not st.session_state.export_select_all else "Deselect All",
+                on_click=toggle_select_all,
+            )
+        with col_thresh:
+            export_min_price = st.number_input(
+                "Minimum price ($)", min_value=0, value=0, step=1, key="export_min_price",
+            )
 
         # Build selectable export table
         export_data = []
@@ -834,9 +861,12 @@ if cards:
             key="export_editor",
         )
 
-        # Filter cards based on Include checkbox
+        # Filter cards based on Include checkbox and minimum price
         included_indices = export_edited[export_edited["Include"]].index.tolist()
-        export_cards = [cards[i] for i in included_indices]
+        export_cards = [
+            cards[i] for i in included_indices
+            if cards[i].market_price is not None and cards[i].market_price >= export_min_price
+        ]
 
         st.caption(f"{len(export_cards)}/{len(cards)} cards selected for export")
 

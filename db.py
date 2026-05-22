@@ -348,12 +348,12 @@ def rollback_import(imported: list[dict]) -> int:
     return count
 
 
-def sync_collectr(collectr_cards: list[Card]) -> tuple[int, int, int]:
+def sync_collectr(collectr_cards: list[Card], add_only: bool = False) -> tuple[int, int, int]:
     """Sync inventory to match a Collectr CSV import.
 
     - Matched cards (by lowercase name + number): update quantity, fill in price if missing.
     - New cards: insert.
-    - Cards in DB but not in Collectr: delete.
+    - Cards in DB but not in Collectr: delete (unless add_only=True).
     - Duplicate rows in the CSV (same name+number, different grade/variant)
       are merged by summing quantities.
 
@@ -402,12 +402,13 @@ def sync_collectr(collectr_cards: list[Card]) -> tuple[int, int, int]:
             }).execute()
             added += 1
 
-    # Remove cards not present in Collectr
+    # Remove cards not present in Collectr (skip if add_only)
     removed = 0
-    for c in existing:
-        if c.id is not None and c.id not in matched_ids:
-            sb.table(TABLE).delete().eq("id", c.id).execute()
-            removed += 1
+    if not add_only:
+        for c in existing:
+            if c.id is not None and c.id not in matched_ids:
+                sb.table(TABLE).delete().eq("id", c.id).execute()
+                removed += 1
 
     return matched, added, removed
 
