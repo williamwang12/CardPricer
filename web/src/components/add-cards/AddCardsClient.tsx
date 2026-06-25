@@ -1,0 +1,468 @@
+"use client";
+
+import { useState, useRef, useTransition } from "react";
+import { toast } from "sonner";
+import { Upload, Plus, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import {
+  parseTcgPlayerCsv,
+  parseDeckTradrCsv,
+  parseCollectrCsv,
+} from "@/lib/parse-csv";
+import {
+  addCardAction,
+  replaceAllAction,
+  rollbackImportAction,
+} from "@/actions/cards";
+import { syncCollectrAction } from "@/actions/sync";
+import type { CardInput } from "@/lib/types";
+
+type Tab = "manual" | "tcgplayer" | "decktradr" | "collectr";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "manual", label: "Manual" },
+  { id: "tcgplayer", label: "TCGPlayer CSV" },
+  { id: "decktradr", label: "DeckTradr CSV" },
+  { id: "collectr", label: "Collectr CSV" },
+];
+
+function readFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target?.result as string);
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
+}
+
+// ── Manual add tab ───────────────────────────────────────────────────────────
+function ManualTab() {
+  const [name, setName] = useState("");
+  const [number, setNumber] = useState("");
+  const [qty, setQty] = useState("1");
+  const [, startTransition] = useTransition();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error("Card name is required");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await addCardAction({
+          name: name.trim(),
+          number: number.trim(),
+          quantity: Math.max(1, parseInt(qty, 10) || 1),
+        });
+        toast.success(`Added ${name.trim()}`);
+        setName("");
+        setNumber("");
+        setQty("1");
+      } catch {
+        toast.error("Failed to add card");
+      }
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4 max-w-sm">
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium" htmlFor="manual-name">
+          Card Name *
+        </label>
+        <input
+          id="manual-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Charizard EX"
+          required
+          className="h-9 rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium" htmlFor="manual-number">
+          Card Number
+        </label>
+        <input
+          id="manual-number"
+          value={number}
+          onChange={(e) => setNumber(e.target.value)}
+          placeholder="e.g. 151/165"
+          className="h-9 rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium" htmlFor="manual-qty">
+          Quantity
+        </label>
+        <input
+          id="manual-qty"
+          type="number"
+          min="1"
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          className="h-9 w-24 rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+      <Button type="submit" className="w-fit">
+        <Plus className="h-4 w-4" />
+        Add Card
+      </Button>
+    </form>
+  );
+}
+
+// ── CSV import tab (TCGPlayer / DeckTradr) ───────────────────────────────────
+function CsvTab({
+  type,
+  description,
+}: {
+  type: "tcgplayer" | "decktradr";
+  description: string;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<CardInput[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
+  const [lastImport, setLastImport] = useState<CardInput[] | null>(null);
+  const [fetchPrices, setFetchPrices] = useState(false);
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await readFile(file);
+      const parsed =
+        type === "tcgplayer"
+          ? parseTcgPlayerCsv(text)
+          : parseDeckTradrCsv(text);
+      setPreview(parsed);
+    } catch {
+      toast.error("Failed to parse CSV");
+    }
+  };
+
+  const handleImport = async () => {
+    if (!preview.length) return;
+    setImporting(true);
+    setProgress(0);
+    const imported: CardInput[] = [];
+
+    for (let i = 0; i < preview.length; i++) {
+      const card = preview[i];
+      setProgressLabel(`${card.name} (${i + 1}/${preview.length})`);
+
+      let finalCard = { ...card };
+
+      if (fetchPrices) {
+        try {
+          const res = await fetch("/api/scraper", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: card.name, number: card.number }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (finalCard.market_price == null) finalCard.market_price = data.price;
+            finalCard = { ...finalCard, tcgplayer_url: data.url };
+          }
+        } catch {
+          // continue
+        }
+      }
+
+      try {
+        await addCardAction(finalCard);
+        imported.push({ name: finalCard.name, number: finalCard.number, quantity: finalCard.quantity });
+      } catch {
+        // continue
+      }
+
+      setProgress(((i + 1) / preview.length) * 100);
+      if (fetchPrices) await new Promise((r) => setTimeout(r, 500));
+    }
+
+    setImporting(false);
+    setProgressLabel("");
+    setLastImport(imported);
+    setPreview([]);
+    if (fileRef.current) fileRef.current.value = "";
+    toast.success(`Imported ${imported.length} card(s)`);
+  };
+
+  const handleRollback = async () => {
+    if (!lastImport) return;
+    try {
+      const count = await rollbackImportAction(lastImport);
+      toast.success(`Rolled back ${count} card(s)`);
+      setLastImport(null);
+    } catch {
+      toast.error("Rollback failed");
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">{description}</p>
+      <div className="flex flex-col gap-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={fetchPrices}
+            onChange={(e) => setFetchPrices(e.target.checked)}
+            className="rounded"
+          />
+          Fetch prices from TCGPlayer while importing (slower)
+        </label>
+        <label className="flex items-center gap-2 w-fit cursor-pointer">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv"
+            onChange={handleFile}
+            className="hidden"
+          />
+          <Button variant="outline" size="sm" type="button" onClick={() => fileRef.current?.click()}>
+            <Upload className="h-4 w-4" />
+            Choose CSV file
+          </Button>
+        </label>
+      </div>
+
+      {preview.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="rounded-lg border overflow-x-auto max-h-64">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="h-8 px-3 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="h-8 px-3 text-left font-medium text-muted-foreground w-28">Number</th>
+                  <th className="h-8 px-3 text-left font-medium text-muted-foreground w-16">Qty</th>
+                  <th className="h-8 px-3 text-right font-medium text-muted-foreground w-20">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.slice(0, 100).map((c, i) => (
+                  <tr key={i} className="border-b last:border-0">
+                    <td className="px-3 py-1.5">{c.name}</td>
+                    <td className="px-3 py-1.5">{c.number || "—"}</td>
+                    <td className="px-3 py-1.5">{c.quantity}</td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {c.market_price != null ? `$${c.market_price.toFixed(2)}` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {preview.length} card(s) found{preview.length > 100 ? " (showing first 100)" : ""}
+          </p>
+
+          {importing && (
+            <div className="flex flex-col gap-1">
+              <Progress value={progress} className="h-2" />
+              <p className="text-xs text-muted-foreground">{progressLabel}</p>
+            </div>
+          )}
+
+          <Button onClick={handleImport} disabled={importing} className="w-fit">
+            {importing ? "Importing…" : `Import ${preview.length} cards`}
+          </Button>
+        </div>
+      )}
+
+      {lastImport && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRollback}
+          className="w-fit text-destructive border-destructive/30 hover:bg-destructive/10"
+        >
+          <RotateCcw className="h-4 w-4" />
+          Rollback last import ({lastImport.length} cards)
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// ── Collectr tab ─────────────────────────────────────────────────────────────
+function CollectrTab() {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [cards, setCards] = useState<CardInput[]>([]);
+  const [addOnly, setAddOnly] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [result, setResult] = useState<{
+    matched: number;
+    added: number;
+    removed: number;
+  } | null>(null);
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await readFile(file);
+      const parsed = parseCollectrCsv(text);
+      setCards(parsed);
+      setResult(null);
+    } catch {
+      toast.error("Failed to parse CSV");
+    }
+  };
+
+  const handleSync = async () => {
+    if (!cards.length) return;
+    setSyncing(true);
+    try {
+      const r = await syncCollectrAction(cards, addOnly);
+      setResult(r);
+      setCards([]);
+      if (fileRef.current) fileRef.current.value = "";
+      toast.success(
+        `Synced: ${r.matched} updated, ${r.added} added, ${r.removed} removed`
+      );
+    } catch {
+      toast.error("Sync failed");
+    }
+    setSyncing(false);
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">
+        Upload your Collectr CSV export to sync your inventory. Full sync
+        removes cards not in the export; Add-only mode preserves existing cards.
+      </p>
+
+      <label className="flex items-center gap-2 w-fit cursor-pointer">
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv"
+          onChange={handleFile}
+          className="hidden"
+        />
+        <Button variant="outline" size="sm" type="button" onClick={() => fileRef.current?.click()}>
+          <Upload className="h-4 w-4" />
+          Choose CSV file
+        </Button>
+      </label>
+
+      {cards.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input
+                type="radio"
+                name="collectr-mode"
+                checked={!addOnly}
+                onChange={() => setAddOnly(false)}
+              />
+              Full sync (add &amp; remove)
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input
+                type="radio"
+                name="collectr-mode"
+                checked={addOnly}
+                onChange={() => setAddOnly(true)}
+              />
+              Add only (keep existing)
+            </label>
+          </div>
+
+          <div className="rounded-lg border overflow-x-auto max-h-64">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="h-8 px-3 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="h-8 px-3 text-left font-medium text-muted-foreground w-28">Number</th>
+                  <th className="h-8 px-3 text-left font-medium text-muted-foreground w-16">Qty</th>
+                  <th className="h-8 px-3 text-right font-medium text-muted-foreground w-20">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cards.slice(0, 100).map((c, i) => (
+                  <tr key={i} className="border-b last:border-0">
+                    <td className="px-3 py-1.5">{c.name}</td>
+                    <td className="px-3 py-1.5">{c.number || "—"}</td>
+                    <td className="px-3 py-1.5">{c.quantity}</td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {c.market_price != null ? `$${c.market_price.toFixed(2)}` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {cards.length} card(s) found{cards.length > 100 ? " (showing first 100)" : ""}
+          </p>
+
+          <Button onClick={handleSync} disabled={syncing} className="w-fit">
+            {syncing ? "Syncing…" : `Sync ${cards.length} cards`}
+          </Button>
+        </div>
+      )}
+
+      {result && (
+        <div className="rounded-md bg-muted px-4 py-3 text-sm">
+          <span className="font-medium">{result.matched}</span> updated ·{" "}
+          <span className="font-medium">{result.added}</span> added ·{" "}
+          <span className="font-medium">{result.removed}</span> removed
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+export default function AddCardsClient() {
+  const [activeTab, setActiveTab] = useState<Tab>("manual");
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-xl font-semibold">Add Cards</h1>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 border-b overflow-x-auto scrollbar-none">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeTab === tab.id
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div>
+        {activeTab === "manual" && <ManualTab />}
+        {activeTab === "tcgplayer" && (
+          <CsvTab
+            type="tcgplayer"
+            description='Upload a TCGPlayer collection export CSV. Expected columns: "Product Name", "Number", "TCG Market Price".'
+          />
+        )}
+        {activeTab === "decktradr" && (
+          <CsvTab
+            type="decktradr"
+            description='Upload a DeckTradr export CSV. Expected columns: "Card Name", "Number", "Quantity".'
+          />
+        )}
+        {activeTab === "collectr" && <CollectrTab />}
+      </div>
+    </div>
+  );
+}
