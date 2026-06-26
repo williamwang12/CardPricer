@@ -295,38 +295,6 @@ export default function ExportClient({ cards }: Props) {
           </Button>
         </div>
 
-        {/* Stickers */}
-        <div className="rounded-lg border p-6 flex flex-col gap-4">
-          <div>
-            <h2 className="text-base font-semibold">Price Stickers (PDF)</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Printable price labels for cards with known prices.
-            </p>
-          </div>
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Label format</label>
-              <select
-                value={stickerFormat}
-                onChange={(e) => setStickerFormat(e.target.value as Format)}
-                className="h-9 w-full rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring bg-white"
-              >
-                {Object.entries(LABEL_FORMATS).map(([key, fmt]) => (
-                  <option key={key} value={key}>{fmt.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <Button
-            onClick={handleDownloadStickers}
-            disabled={loadingStickers || selectedIds.size === 0}
-            variant="outline"
-            className="w-fit"
-          >
-            <Download className="h-4 w-4" />
-            {loadingStickers ? "Generating…" : "Download sticker_sheet.pdf"}
-          </Button>
-        </div>
       </div>
 
       {/* Changes Since Last Download */}
@@ -408,6 +376,39 @@ export default function ExportClient({ cards }: Props) {
           </div>
         </div>
       )}
+
+      {/* Stickers */}
+      <div className="rounded-lg border p-6 flex flex-col gap-4">
+        <div>
+          <h2 className="text-base font-semibold">Price Stickers (PDF)</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Printable price labels for cards with known prices.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium">Label format</label>
+            <select
+              value={stickerFormat}
+              onChange={(e) => setStickerFormat(e.target.value as Format)}
+              className="h-9 w-full rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring bg-white"
+            >
+              {Object.entries(LABEL_FORMATS).map(([key, fmt]) => (
+                <option key={key} value={key}>{fmt.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <Button
+          onClick={handleDownloadStickers}
+          disabled={loadingStickers || selectedIds.size === 0}
+          variant="outline"
+          className="w-fit"
+        >
+          <Download className="h-4 w-4" />
+          {loadingStickers ? "Generating…" : "Download sticker_sheet.pdf"}
+        </Button>
+      </div>
     </div>
   );
 }
