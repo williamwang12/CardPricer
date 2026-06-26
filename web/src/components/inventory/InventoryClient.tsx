@@ -241,7 +241,6 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
           // continue on individual failure
         }
         setRefreshProgress(((i + 1) / toRefresh.length) * 100);
-        await new Promise((r) => setTimeout(r, 500));
       }
 
       // Compute price movers (only for "Refresh All")
@@ -373,6 +372,13 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
         <div className="flex flex-col gap-1">
           <Progress value={refreshProgress} className="h-2" />
           <p className="text-xs text-muted-foreground">{refreshStatus}</p>
+        </div>
+      )}
+
+      {/* Beta reset notice */}
+      {cards.length === 0 && (
+        <div className="rounded-md border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+          We recently adjusted our database indexes and had to reset all card data. Please re-import your collection — sorry for the inconvenience!
         </div>
       )}
 

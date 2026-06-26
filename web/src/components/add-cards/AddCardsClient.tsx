@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useTransition } from "react";
+import { useState, useRef, useEffect, useTransition, useCallback } from "react";
 import { toast } from "sonner";
 import { Upload, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,9 @@ import {
   rollbackImportAction,
 } from "@/actions/cards";
 import { syncCollectrAction } from "@/actions/sync";
+import { searchCardsAction, type CardSuggestion } from "@/actions/autocomplete";
+import { useDebounce } from "@/lib/hooks/use-debounce";
+import { cn } from "@/lib/cn";
 import type { CardInput } from "@/lib/types";
 
 type Tab = "manual" | "tcgplayer" | "decktradr" | "collectr";
@@ -43,6 +46,69 @@ function ManualTab() {
   const [qty, setQty] = useState("1");
   const [, startTransition] = useTransition();
 
+  const [suggestions, setSuggestions] = useState<CardSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const listboxId = "manual-name-listbox";
+
+  const debouncedName = useDebounce(name, 300);
+
+  useEffect(() => {
+    if (debouncedName.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    searchCardsAction(debouncedName).then((results) => {
+      if (!cancelled) {
+        setSuggestions(results);
+        setShowSuggestions(results.length > 0);
+        setHighlightIndex(-1);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [debouncedName]);
+
+  // Click-outside dismissal
+  useEffect(() => {
+    function handleMouseDown(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, []);
+
+  const selectSuggestion = useCallback((suggestion: CardSuggestion) => {
+    setName(suggestion.name);
+    setNumber(suggestion.number);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setHighlightIndex(-1);
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightIndex((prev) => (prev + 1) % suggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightIndex((prev) =>
+        prev <= 0 ? suggestions.length - 1 : prev - 1
+      );
+    } else if (e.key === "Enter" && highlightIndex >= 0) {
+      e.preventDefault();
+      selectSuggestion(suggestions[highlightIndex]);
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+      setHighlightIndex(-1);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -60,6 +126,8 @@ function ManualTab() {
         setName("");
         setNumber("");
         setQty("1");
+        setSuggestions([]);
+        setShowSuggestions(false);
       } catch {
         toast.error("Failed to add card");
       }
@@ -72,14 +140,57 @@ function ManualTab() {
         <label className="text-sm font-medium" htmlFor="manual-name">
           Card Name *
         </label>
-        <input
-          id="manual-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Charizard EX"
-          required
-          className="h-9 rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-        />
+        <div ref={wrapperRef} className="relative">
+          <input
+            id="manual-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onFocus={() => {
+              if (suggestions.length > 0) setShowSuggestions(true);
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="e.g. Charizard EX"
+            required
+            autoComplete="off"
+            role="combobox"
+            aria-expanded={showSuggestions}
+            aria-controls={listboxId}
+            aria-activedescendant={
+              highlightIndex >= 0 ? `suggestion-${highlightIndex}` : undefined
+            }
+            className="h-9 w-full rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          {showSuggestions && suggestions.length > 0 && (
+            <ul
+              id={listboxId}
+              role="listbox"
+              className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover text-popover-foreground shadow-md max-h-60 overflow-y-auto"
+            >
+              {suggestions.map((s, i) => (
+                <li
+                  key={`${s.name}-${s.number}`}
+                  id={`suggestion-${i}`}
+                  role="option"
+                  aria-selected={i === highlightIndex}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectSuggestion(s);
+                  }}
+                  onMouseEnter={() => setHighlightIndex(i)}
+                  className={cn(
+                    "flex flex-col px-3 py-2 cursor-pointer text-sm",
+                    i === highlightIndex && "bg-accent text-accent-foreground"
+                  )}
+                >
+                  <span className="font-medium">{s.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {s.number}{s.number && s.group_name ? " · " : ""}{s.group_name}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
       <div className="flex flex-col gap-1.5">
         <label className="text-sm font-medium" htmlFor="manual-number">
@@ -182,7 +293,6 @@ function CsvTab({
       }
 
       setProgress(((i + 1) / preview.length) * 100);
-      if (fetchPrices) await new Promise((r) => setTimeout(r, 500));
     }
 
     setImporting(false);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { searchTcgplayer } from "@/lib/scraper";
+import { bulkSearchTcgplayer, loadCatalogIndex } from "@/lib/scraper";
 import { updatePrices } from "@/lib/db/cards";
 import { setLastRefreshed } from "@/lib/db/refresh-log";
 import type { Card } from "@/lib/types";
@@ -29,6 +29,9 @@ export async function GET(req: Request) {
   const emails = [...new Set((userRows ?? []).map((r) => r.user_email as string))];
   let totalUpdated = 0;
 
+  // Load catalog once, reuse for all users
+  const catalogIndex = await loadCatalogIndex();
+
   for (const email of emails) {
     // Load all non-manual cards for this user
     const { data: cards, error: cardsErr } = await supabase
@@ -39,24 +42,11 @@ export async function GET(req: Request) {
 
     if (cardsErr || !cards?.length) continue;
 
-    const updates: { id: number; market_price: number | null; tcgplayer_url: string | null }[] = [];
-
-    for (const card of cards as Card[]) {
-      try {
-        const result = await searchTcgplayer(card.name, card.number);
-        if (result.price != null || result.url != null) {
-          updates.push({
-            id: card.id,
-            market_price: result.price,
-            tcgplayer_url: result.url,
-          });
-          totalUpdated++;
-        }
-      } catch {
-        // continue on individual failure
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
+    const updates = await bulkSearchTcgplayer(
+      (cards as Card[]).map((c) => ({ id: c.id, name: c.name, number: c.number })),
+      catalogIndex
+    );
+    totalUpdated += updates.length;
 
     if (updates.length > 0) {
       await updatePrices(updates);
