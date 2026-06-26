@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { Download, Search, CheckSquare, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LABEL_FORMATS } from "@/lib/label-formats";
 import type { Card } from "@/lib/types";
+import type { LabelSnapshot } from "@/lib/db/label-snapshot";
 
 type Format = keyof typeof LABEL_FORMATS;
 
@@ -70,6 +71,21 @@ export default function ExportClient({ cards }: Props) {
   const [loadingStickers, setLoadingStickers] = useState(false);
   const [stickerFormat, setStickerFormat] = useState<Format>("avery5167");
 
+  // ── Snapshot state ──────────────────────────────────────────────────────────
+  const [snapshot, setSnapshot] = useState<LabelSnapshot | null>(null);
+  const [moverThreshold, setMoverThreshold] = useState(1.0);
+  const [loadingChanges, setLoadingChanges] = useState(false);
+  const [loadingNewcomers, setLoadingNewcomers] = useState(false);
+  const [loadingMovers, setLoadingMovers] = useState(false);
+  const [loadingBoth, setLoadingBoth] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/export/price-list")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setSnapshot(data as LabelSnapshot); })
+      .catch(() => {});
+  }, []);
+
   const handleDownloadInventory = async () => {
     setLoadingInventory(true);
     try {
@@ -96,6 +112,9 @@ export default function ExportClient({ cards }: Props) {
       });
       if (!res.ok) throw new Error();
       downloadBlob(await res.blob(), "price_list.xlsx");
+      // Refresh snapshot after successful download
+      const snap = await fetch("/api/export/price-list").then((r) => r.ok ? r.json() : null);
+      if (snap) setSnapshot(snap as LabelSnapshot);
     } catch {
       toast.error("Failed to export price list");
     }
@@ -116,6 +135,58 @@ export default function ExportClient({ cards }: Props) {
       toast.error("Failed to export stickers");
     }
     setLoadingStickers(false);
+  };
+
+  // ── Changes computation ─────────────────────────────────────────────────────
+  const { newcomers, priceMovers } = useMemo(() => {
+    if (!snapshot) return { newcomers: [] as Card[], priceMovers: [] as Card[] };
+    const snapLookup = new Map(
+      snapshot.cards.map((c) => [`${c.name.toLowerCase()}|${c.number}`, c.market_price])
+    );
+    const snapKeys = new Set(snapLookup.keys());
+    const newcomers = cards.filter(
+      (c) => !snapKeys.has(`${c.name.toLowerCase()}|${c.number}`)
+    );
+    const priceMovers = cards.filter((c) => {
+      const key = `${c.name.toLowerCase()}|${c.number}`;
+      const old = snapLookup.get(key);
+      return (
+        old != null &&
+        c.market_price != null &&
+        Math.abs(c.market_price - old) >= moverThreshold
+      );
+    });
+    return { newcomers, priceMovers };
+  }, [snapshot, cards, moverThreshold]);
+
+  const combined = useMemo(() => {
+    const seen = new Set<string>();
+    return [...newcomers, ...priceMovers].filter((c) => {
+      const key = `${c.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [newcomers, priceMovers]);
+
+  const handleDownloadChanges = async (
+    cardIds: number[],
+    filename: string,
+    setLoading: (v: boolean) => void
+  ) => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/export/price-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardIds }),
+      });
+      if (!res.ok) throw new Error();
+      downloadBlob(await res.blob(), filename);
+    } catch {
+      toast.error("Failed to export");
+    }
+    setLoading(false);
   };
 
   return (
@@ -257,6 +328,86 @@ export default function ExportClient({ cards }: Props) {
           </Button>
         </div>
       </div>
+
+      {/* Changes Since Last Download */}
+      {snapshot && (
+        <div className="rounded-lg border p-6 flex flex-col gap-4">
+          <div>
+            <h2 className="text-base font-semibold">Changes Since Last Download</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Last downloaded:{" "}
+              {new Date(snapshot.downloaded_at).toLocaleString(undefined, {
+                month: "short", day: "numeric", year: "numeric",
+                hour: "numeric", minute: "2-digit",
+              })}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium whitespace-nowrap">
+              Price change threshold ($)
+            </label>
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={moverThreshold}
+              onChange={(e) => setMoverThreshold(Math.max(0, parseFloat(e.target.value) || 0))}
+              className="h-8 w-24 rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            📦 <strong>{newcomers.length}</strong> newcomer(s) ·{" "}
+            📈 <strong>{priceMovers.length}</strong> price mover(s) (±${moverThreshold.toFixed(2)}+)
+          </p>
+
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="outline"
+              disabled={newcomers.length === 0 || loadingNewcomers}
+              onClick={() =>
+                handleDownloadChanges(
+                  newcomers.map((c) => c.id),
+                  "newcomers.xlsx",
+                  setLoadingNewcomers
+                )
+              }
+            >
+              <Download className="h-4 w-4" />
+              {loadingNewcomers ? "Generating…" : `Newcomers (${newcomers.length})`}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={priceMovers.length === 0 || loadingMovers}
+              onClick={() =>
+                handleDownloadChanges(
+                  priceMovers.map((c) => c.id),
+                  "price_movers.xlsx",
+                  setLoadingMovers
+                )
+              }
+            >
+              <Download className="h-4 w-4" />
+              {loadingMovers ? "Generating…" : `Price Movers (${priceMovers.length})`}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={combined.length === 0 || loadingBoth}
+              onClick={() =>
+                handleDownloadChanges(
+                  combined.map((c) => c.id),
+                  "changes_since_last.xlsx",
+                  setLoadingBoth
+                )
+              }
+            >
+              <Download className="h-4 w-4" />
+              {loadingBoth ? "Generating…" : `Both (${combined.length})`}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
