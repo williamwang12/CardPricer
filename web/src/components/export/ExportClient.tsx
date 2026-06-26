@@ -63,6 +63,15 @@ export default function ExportClient({ cards }: Props) {
     });
   };
 
+  const uncheckAll = () => setSelectedIds(new Set());
+
+  const [minPrice, setMinPrice] = useState(1);
+  const selectAbovePrice = () => {
+    setSelectedIds(
+      new Set(cards.filter((c) => c.market_price != null && c.market_price >= minPrice).map((c) => c.id))
+    );
+  };
+
   const selectedCardIds = Array.from(selectedIds);
 
   // ── Export state ────────────────────────────────────────────────────────────
@@ -210,7 +219,31 @@ export default function ExportClient({ cards }: Props) {
           <span className="text-sm font-medium">
             {selectedIds.size} / {cards.length} cards selected
           </span>
-          <div className="relative w-full sm:w-56 sm:ml-auto">
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            <button
+              onClick={uncheckAll}
+              className="text-xs px-2 py-1 rounded border border-input hover:bg-muted transition-colors"
+            >
+              Uncheck All
+            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={selectAbovePrice}
+                className="text-xs px-2 py-1 rounded border border-input hover:bg-muted transition-colors whitespace-nowrap"
+              >
+                Select ≥ ${minPrice}
+              </button>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={minPrice}
+                onChange={(e) => setMinPrice(Math.max(0, parseFloat(e.target.value) || 0))}
+                className="h-7 w-16 rounded border border-input px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+          <div className="relative w-full sm:w-56">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <input
               value={search}
