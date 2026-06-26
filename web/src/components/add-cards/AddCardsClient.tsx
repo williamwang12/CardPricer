@@ -239,7 +239,6 @@ function CsvTab({
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
   const [lastImport, setLastImport] = useState<CardInput[] | null>(null);
-  const [fetchPrices, setFetchPrices] = useState(false);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -266,28 +265,9 @@ function CsvTab({
       const card = preview[i];
       setProgressLabel(`${card.name} (${i + 1}/${preview.length})`);
 
-      let finalCard = { ...card };
-
-      if (fetchPrices) {
-        try {
-          const res = await fetch("/api/scraper", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: card.name, number: card.number }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (finalCard.market_price == null) finalCard.market_price = data.price;
-            finalCard = { ...finalCard, tcgplayer_url: data.url };
-          }
-        } catch {
-          // continue
-        }
-      }
-
       try {
-        await addCardAction(finalCard);
-        imported.push({ name: finalCard.name, number: finalCard.number, quantity: finalCard.quantity });
+        await addCardAction(card);
+        imported.push({ name: card.name, number: card.number, quantity: card.quantity });
       } catch {
         // continue
       }
@@ -318,15 +298,6 @@ function CsvTab({
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">{description}</p>
       <div className="flex flex-col gap-3">
-        <label className="flex items-center gap-2 text-sm font-medium">
-          <input
-            type="checkbox"
-            checked={fetchPrices}
-            onChange={(e) => setFetchPrices(e.target.checked)}
-            className="rounded"
-          />
-          Fetch prices from TCGPlayer while importing (slower)
-        </label>
         <label className="flex items-center gap-2 w-fit cursor-pointer">
           <input
             ref={fileRef}

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useTransition, useEffect } from "react";
 import { toast } from "sonner";
-import { ExternalLink, Trash2, RefreshCw, Pencil, X, Download } from "lucide-react";
+import { ExternalLink, Trash2, RefreshCw, X, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
@@ -10,7 +10,6 @@ import {
   updateCardAction,
   deleteCardsAction,
   savePriceAction,
-  massageNamesAction,
   deleteAllAction,
 } from "@/actions/cards";
 import type { Card, PriceMover } from "@/lib/types";
@@ -274,22 +273,6 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
     [cards]
   );
 
-  // ── Massage names ──────────────────────────────────────────────────────────
-  const handleMassageNames = async () => {
-    try {
-      const count = await massageNamesAction();
-      if (count > 0) {
-        toast.success(`Normalized ${count} name(s)`);
-        // Reload card names from server via a page refresh
-        window.location.reload();
-      } else {
-        toast.info("All names already normalized");
-      }
-    } catch {
-      toast.error("Failed to normalize names");
-    }
-  };
-
   // ── Delete all ─────────────────────────────────────────────────────────────
   const handleDeleteAll = async () => {
     if (!confirm("Delete ALL cards? This cannot be undone.")) return;
@@ -351,10 +334,6 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             Refresh Missing
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleMassageNames}>
-            <Pencil className="h-4 w-4" />
-            Normalize Names
           </Button>
           <Button
             variant="ghost"

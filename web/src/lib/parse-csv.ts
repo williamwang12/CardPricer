@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { extractPokemonName, cleanNumber } from "@/lib/utils";
+import { extractPokemonName, cleanNumber, normalizeName } from "@/lib/utils";
 import type { CardInput } from "@/lib/types";
 
 function parsePrice(raw: string | undefined | null): number | null {
@@ -28,7 +28,7 @@ export function parseTcgPlayerCsv(csvText: string): CardInput[] {
     const number = cleanNumber(row["Number"]);
     const market_price = parsePrice(row["TCG Market Price"]);
 
-    cards.push({ name, number, quantity: 1, market_price });
+    cards.push({ name: normalizeName(name), number, quantity: 1, market_price });
   }
   return cards;
 }
@@ -49,7 +49,7 @@ export function parseDeckTradrCsv(csvText: string): CardInput[] {
     const qty = parseInt((row["Quantity"] ?? "1").trim(), 10);
     const quantity = isNaN(qty) || qty < 1 ? 1 : qty;
 
-    cards.push({ name, number, quantity });
+    cards.push({ name: normalizeName(name), number, quantity });
   }
   return cards;
 }
@@ -69,7 +69,7 @@ export function parseCollectrCsv(csvText: string): CardInput[] {
     const rawName = (row["Product Name"] ?? "").trim();
     if (!rawName) continue;
 
-    const name = extractPokemonName(rawName);
+    const name = normalizeName(extractPokemonName(rawName));
     const number = cleanNumber(row["Card Number"]);
     const qty = parseInt((row["Quantity"] ?? "1").trim(), 10);
     const quantity = isNaN(qty) || qty < 1 ? 1 : qty;

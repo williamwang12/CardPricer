@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { href: "/add", label: "Add Cards" },
   { href: "/transactions", label: "Transactions" },
   { href: "/export", label: "Export" },
+  { href: "/catalog", label: "Catalog" },
 ];
 
 interface NavProps {
