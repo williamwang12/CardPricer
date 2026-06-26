@@ -15,7 +15,7 @@ import {
   replaceAllAction,
   rollbackImportAction,
 } from "@/actions/cards";
-import { syncCollectrAction } from "@/actions/sync";
+import { upsertCardAction, removeStaleCardsAction } from "@/actions/sync";
 import { searchCardsAction, type CardSuggestion } from "@/actions/autocomplete";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { cn } from "@/lib/cn";
@@ -406,6 +406,8 @@ function CollectrTab() {
   const [cards, setCards] = useState<CardInput[]>([]);
   const [addOnly, setAddOnly] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
   const [result, setResult] = useState<{
     matched: number;
     added: number;
@@ -428,18 +430,56 @@ function CollectrTab() {
   const handleSync = async () => {
     if (!cards.length) return;
     setSyncing(true);
-    try {
-      const r = await syncCollectrAction(cards, addOnly);
-      setResult(r);
-      setCards([]);
-      if (fileRef.current) fileRef.current.value = "";
-      toast.success(
-        `Synced: ${r.matched} updated, ${r.added} added, ${r.removed} removed`
-      );
-    } catch {
-      toast.error("Sync failed");
+    setProgress(0);
+
+    // Merge duplicates (same name+number, different grade)
+    const merged = new Map<string, CardInput>();
+    for (const cc of cards) {
+      const key = `${cc.name.toLowerCase()}\0${cc.number}`;
+      const prev = merged.get(key);
+      if (prev) {
+        prev.quantity += cc.quantity;
+      } else {
+        merged.set(key, { ...cc });
+      }
     }
+
+    const mergedCards = Array.from(merged.values());
+    const mergedKeys = Array.from(merged.keys());
+    let matched = 0;
+    let added = 0;
+
+    for (let i = 0; i < mergedCards.length; i++) {
+      const card = mergedCards[i];
+      setProgressLabel(`${card.name} (${i + 1}/${mergedCards.length})`);
+      try {
+        const result = await upsertCardAction(card);
+        if (result === "matched") matched++;
+        else added++;
+      } catch {
+        // continue
+      }
+      setProgress(((i + 1) / mergedCards.length) * 100);
+    }
+
+    let removed = 0;
+    if (!addOnly) {
+      setProgressLabel("Removing stale cards…");
+      try {
+        removed = await removeStaleCardsAction(mergedKeys);
+      } catch {
+        // continue
+      }
+    }
+
     setSyncing(false);
+    setProgressLabel("");
+    setResult({ matched, added, removed });
+    setCards([]);
+    if (fileRef.current) fileRef.current.value = "";
+    toast.success(
+      `Synced: ${matched} updated, ${added} added, ${removed} removed`
+    );
   };
 
   return (
@@ -513,6 +553,13 @@ function CollectrTab() {
           <p className="text-xs text-muted-foreground">
             {cards.length} card(s) found{cards.length > 100 ? " (showing first 100)" : ""}
           </p>
+
+          {syncing && (
+            <div className="flex flex-col gap-1">
+              <Progress value={progress} className="h-2" />
+              <p className="text-xs text-muted-foreground">{progressLabel}</p>
+            </div>
+          )}
 
           <Button onClick={handleSync} disabled={syncing} className="w-fit">
             {syncing ? "Syncing…" : `Sync ${cards.length} cards`}

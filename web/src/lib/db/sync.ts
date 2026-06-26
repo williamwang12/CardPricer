@@ -72,3 +72,60 @@ export async function syncCollectr(
 
   return { matched, added, removed };
 }
+
+/** Upsert a single card for a user. Returns "matched" or "added". */
+export async function upsertCard(
+  card: CardInput,
+  userEmail: string
+): Promise<"matched" | "added"> {
+  // Check for existing card with same name+number
+  const { data: existing } = await supabase
+    .from(TABLE)
+    .select("id, quantity, market_price")
+    .eq("user_email", userEmail)
+    .eq("name", card.name)
+    .eq("number", card.number)
+    .limit(1);
+
+  if (existing && existing.length > 0) {
+    const row = existing[0];
+    const updates: Record<string, unknown> = { quantity: card.quantity };
+    if (row.market_price == null && card.market_price != null) {
+      updates.market_price = card.market_price;
+    }
+    await supabase.from(TABLE).update(updates).eq("id", row.id);
+    return "matched";
+  }
+
+  await supabase.from(TABLE).upsert(
+    {
+      name: card.name,
+      number: card.number,
+      quantity: card.quantity,
+      market_price: card.market_price ?? null,
+      user_email: userEmail,
+    },
+    { onConflict: "name,number,user_email" }
+  );
+  return "added";
+}
+
+/** Remove cards not in the imported set. Returns count removed. */
+export async function removeStaleCards(
+  importedKeys: string[],
+  userEmail: string
+): Promise<number> {
+  const existing = await loadAllCards(userEmail);
+  const keepSet = new Set(importedKeys);
+  let removed = 0;
+
+  for (const c of existing) {
+    const key = `${c.name.toLowerCase()}\0${c.number}`;
+    if (!keepSet.has(key) && c.id) {
+      await supabase.from(TABLE).delete().eq("id", c.id);
+      removed++;
+    }
+  }
+
+  return removed;
+}
