@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
   <!-- Dark rounded square background -->
   <rect width="200" height="200" rx="40" fill="#0a0a0a"/>
-  <!-- V lettermark -->
-  <path d="M44 52 L100 148 L156 52" stroke="white" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- C lettermark -->
+  <path d="M130 60 A50 50 0 1 0 130 140" stroke="white" stroke-width="22" stroke-linecap="round" fill="none"/>
 </svg>
