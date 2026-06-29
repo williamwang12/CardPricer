@@ -10,8 +10,8 @@ export default async function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-zinc-50">
       <div className="w-full max-w-sm bg-white rounded-xl border border-border p-8 flex flex-col items-center gap-6 shadow-sm">
         <div className="flex flex-col items-center gap-2">
-          <img src="/logo.svg" alt="Vendr" className="w-16 h-16 rounded-2xl shadow-sm" />
-          <h1 className="text-2xl font-bold tracking-tight">Vendr</h1>
+          <img src="/logo.svg" alt="Card Parser" className="w-16 h-16 rounded-2xl shadow-sm" />
+          <h1 className="text-2xl font-bold tracking-tight">Card Parser</h1>
           <p className="text-sm text-muted-foreground text-center">
             Track your Pokémon card collection and prices
           </p>

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Vendr",
+  title: "Card Parser",
   description: "Track your Pokémon card collection and prices",
   icons: {
     icon: "/favicon.svg",

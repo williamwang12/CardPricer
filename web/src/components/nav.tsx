@@ -33,8 +33,8 @@ export default function Nav({ user }: NavProps) {
       <div className="container mx-auto px-4 max-w-7xl flex items-center h-14 gap-4">
         <div className="flex items-center gap-2 flex-shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="Vendr" className="w-7 h-7 rounded-lg" />
-          <span className="font-bold text-base tracking-tight">Vendr</span>
+          <img src="/logo.svg" alt="Card Parser" className="w-7 h-7 rounded-lg" />
+          <span className="font-bold text-base tracking-tight">Card Parser</span>
         </div>
 
         {/* Desktop nav links */}
