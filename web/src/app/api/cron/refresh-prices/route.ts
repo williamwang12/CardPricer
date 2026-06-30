@@ -8,14 +8,7 @@ import type { Card } from "@/lib/types";
 // Allow up to 5 minutes on Vercel Pro
 export const maxDuration = 300;
 
-export async function GET(req: Request) {
-  // Verify Vercel cron secret
-  const authHeader = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export async function GET() {
   // Get all distinct users with cards
   const { data: userRows, error: userErr } = await supabase
     .from("cards")

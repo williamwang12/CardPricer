@@ -3,13 +3,7 @@ import { syncAllGroups } from "@/lib/tcgcsv";
 
 export const maxDuration = 300;
 
-export async function GET(req: Request) {
-  const authHeader = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export async function GET() {
   try {
     const stats = await syncAllGroups();
     return NextResponse.json({
