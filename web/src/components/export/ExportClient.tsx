@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Download, Search, CheckSquare, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LABEL_FORMATS } from "@/lib/label-formats";
+import { useCurrency } from "@/lib/currency-context";
 import type { Card } from "@/lib/types";
 import type { LabelSnapshot } from "@/lib/db/label-snapshot";
 
@@ -24,6 +25,8 @@ interface Props {
 }
 
 export default function ExportClient({ cards }: Props) {
+  const { fmt, currency, rate } = useCurrency();
+
   // ── Card selection ──────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(
     new Set(cards.map((c) => c.id))
@@ -101,7 +104,7 @@ export default function ExportClient({ cards }: Props) {
       const res = await fetch("/api/export/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds: selectedCardIds }),
+        body: JSON.stringify({ cardIds: selectedCardIds, currency, rate }),
       });
       if (!res.ok) throw new Error();
       downloadBlob(await res.blob(), "inventory.xlsx");
@@ -117,7 +120,7 @@ export default function ExportClient({ cards }: Props) {
       const res = await fetch("/api/export/price-list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds: selectedCardIds }),
+        body: JSON.stringify({ cardIds: selectedCardIds, currency, rate }),
       });
       if (!res.ok) throw new Error();
       downloadBlob(await res.blob(), "price_list.xlsx");
@@ -136,7 +139,7 @@ export default function ExportClient({ cards }: Props) {
       const res = await fetch("/api/export/stickers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds: selectedCardIds, format: stickerFormat }),
+        body: JSON.stringify({ cardIds: selectedCardIds, format: stickerFormat, currency, rate }),
       });
       if (!res.ok) throw new Error();
       downloadBlob(await res.blob(), "sticker_sheet.pdf");
@@ -188,7 +191,7 @@ export default function ExportClient({ cards }: Props) {
       const res = await fetch("/api/export/price-list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds }),
+        body: JSON.stringify({ cardIds, currency, rate }),
       });
       if (!res.ok) throw new Error();
       downloadBlob(await res.blob(), filename);
@@ -277,7 +280,7 @@ export default function ExportClient({ cards }: Props) {
                     <td className="py-1.5 pr-3">{card.name}</td>
                     <td className="py-1.5 pr-3 text-muted-foreground w-28">{card.number || "—"}</td>
                     <td className="py-1.5 pr-4 text-right font-mono text-muted-foreground w-20">
-                      {card.market_price != null ? `$${card.market_price.toFixed(2)}` : "—"}
+                      {fmt(card.market_price)}
                     </td>
                   </tr>
                 ))}

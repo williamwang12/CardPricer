@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { Search, ChevronRight, ChevronDown, Loader2, ExternalLink } from "lucide-react";
 import { getSetCardsAction } from "@/actions/catalog";
+import { useCurrency } from "@/lib/currency-context";
 import type { CatalogSet, CatalogCard } from "@/lib/db/catalog";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function CatalogClient({ sets }: Props) {
+  const { fmt } = useCurrency();
   const [search, setSearch] = useState("");
   const [expandedSet, setExpandedSet] = useState<number | null>(null);
   const [loadingSet, setLoadingSet] = useState<number | null>(null);
@@ -143,9 +145,7 @@ export default function CatalogClient({ sets }: Props) {
                                     {card.number || "—"}
                                   </td>
                                   <td className="px-4 py-1.5 text-right font-mono text-muted-foreground">
-                                    {card.market_price != null
-                                      ? `$${Number(card.market_price).toFixed(2)}`
-                                      : "—"}
+                                    {fmt(card.market_price != null ? Number(card.market_price) : null)}
                                   </td>
                                   <td className="px-4 py-1.5 text-center">
                                     {card.url ? (
@@ -181,9 +181,7 @@ export default function CatalogClient({ sets }: Props) {
                               <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                 <span>#{card.number || "—"}</span>
                                 <span className="font-mono">
-                                  {card.market_price != null
-                                    ? `$${card.market_price.toFixed(2)}`
-                                    : "—"}
+                                  {fmt(card.market_price != null ? Number(card.market_price) : null)}
                                 </span>
                                 {card.url && (
                                   <a

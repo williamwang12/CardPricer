@@ -19,7 +19,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { cardIds } = (await req.json()) as { cardIds?: number[] };
+  const { cardIds, currency, rate } = (await req.json()) as {
+    cardIds?: number[];
+    currency?: string;
+    rate?: number;
+  };
   let cards = await loadAllCards(session.user.email);
   if (cardIds) {
     const idSet = new Set(cardIds);
@@ -32,7 +36,11 @@ export async function POST(req: NextRequest) {
     session.user.email
   ).catch(() => { /* non-fatal */ });
 
-  const buf = await exportPriceList(cards);
+  const buf = await exportPriceList(
+    cards,
+    (currency as "USD") ?? "USD",
+    rate ?? 1
+  );
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

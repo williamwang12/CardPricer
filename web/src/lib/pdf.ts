@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import type { Card } from "@/lib/types";
 import { LABEL_FORMATS } from "@/lib/label-formats";
+import { formatPrice, type CurrencyCode } from "@/lib/currency";
 
 export { LABEL_FORMATS };
 
@@ -22,14 +23,16 @@ function drawRectLabel(
   _name: string,
   price: number | null,
   _logoBuffer: Buffer | null,
-  fmt: (typeof LABEL_FORMATS)[string]
+  labelFmt: (typeof LABEL_FORMATS)[string],
+  currency: CurrencyCode = "USD",
+  rate = 1
 ) {
   const priceFontSize = 16;
-  const priceStr = price != null ? `$${price.toFixed(2)}` : "N/A";
+  const priceStr = price != null ? formatPrice(price, currency, rate) : "N/A";
   doc.font("Helvetica-Bold").fontSize(priceFontSize).fillColor("#000000");
   const priceW = doc.widthOfString(priceStr);
-  const priceX = x + (fmt.width - priceW) / 2;
-  const priceY = y + (fmt.height - priceFontSize) / 2;
+  const priceX = x + (labelFmt.width - priceW) / 2;
+  const priceY = y + (labelFmt.height - priceFontSize) / 2;
   doc.text(priceStr, priceX, priceY, { lineBreak: false });
 }
 
@@ -40,14 +43,16 @@ function drawSquareLabel(
   _name: string,
   price: number | null,
   _logoBuffer: Buffer | null,
-  fmt: (typeof LABEL_FORMATS)[string]
+  labelFmt: (typeof LABEL_FORMATS)[string],
+  currency: CurrencyCode = "USD",
+  rate = 1
 ) {
   const priceFontSize = 14;
-  const priceStr = price != null ? `$${price.toFixed(2)}` : "N/A";
+  const priceStr = price != null ? formatPrice(price, currency, rate) : "N/A";
   doc.font("Helvetica-Bold").fontSize(priceFontSize).fillColor("#000000");
   const priceW = doc.widthOfString(priceStr);
-  const priceX = x + (fmt.width - priceW) / 2;
-  const priceY = y + (fmt.height - priceFontSize) / 2;
+  const priceX = x + (labelFmt.width - priceW) / 2;
+  const priceY = y + (labelFmt.height - priceFontSize) / 2;
   doc.text(priceStr, priceX, priceY, { lineBreak: false });
 }
 
@@ -67,10 +72,12 @@ export function stickerCount(cards: Card[]): number {
 export async function generateStickerPdf(
   cards: Card[],
   logoBuffer: Buffer | null = null,
-  formatKey = "avery5167"
+  formatKey = "avery5167",
+  currency: CurrencyCode = "USD",
+  rate = 1
 ): Promise<Buffer> {
-  const fmt = LABEL_FORMATS[formatKey];
-  const lpp = fmt.cols * fmt.rows;
+  const labelFmt = LABEL_FORMATS[formatKey];
+  const lpp = labelFmt.cols * labelFmt.rows;
   const drawFn = formatKey === "avery94102" ? drawSquareLabel : drawRectLabel;
 
   // Expand cards into individual stickers
@@ -96,15 +103,15 @@ export async function generateStickerPdf(
 
     for (let i = 0; i < stickers.length; i++) {
       const posOnPage = i % lpp;
-      const col = posOnPage % fmt.cols;
-      const row = Math.floor(posOnPage / fmt.cols);
+      const col = posOnPage % labelFmt.cols;
+      const row = Math.floor(posOnPage / labelFmt.cols);
 
       if (posOnPage === 0 && i > 0) {
         doc.addPage();
       }
 
-      const { x, y } = labelOrigin(col, row, fmt);
-      drawFn(doc, x, y, stickers[i].name, stickers[i].market_price, logoBuffer, fmt);
+      const { x, y } = labelOrigin(col, row, labelFmt);
+      drawFn(doc, x, y, stickers[i].name, stickers[i].market_price, logoBuffer, labelFmt, currency, rate);
     }
 
     doc.end();

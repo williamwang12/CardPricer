@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { signOutAction } from "@/actions/auth";
 import { cn } from "@/lib/cn";
+import { useCurrency } from "@/lib/currency-context";
+import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 
 const NAV_LINKS = [
   { href: "/inventory", label: "Inventory" },
@@ -26,6 +28,21 @@ interface NavProps {
 export default function Nav({ user }: NavProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { currency, setCurrency } = useCurrency();
+
+  const currencySelect = (
+    <select
+      value={currency}
+      onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+      className="h-8 rounded-md border border-input bg-white px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+    >
+      {Object.values(SUPPORTED_CURRENCIES).map((c) => (
+        <option key={c.code} value={c.code}>
+          {c.symbol} {c.code}
+        </option>
+      ))}
+    </select>
+  );
 
   return (
     <header className="border-b bg-white sticky top-0 z-10">
@@ -54,6 +71,11 @@ export default function Nav({ user }: NavProps) {
             </Link>
           ))}
         </nav>
+
+        {/* Desktop currency selector */}
+        <div className="hidden sm:block flex-shrink-0">
+          {currencySelect}
+        </div>
 
         {/* Desktop user / sign-out */}
         <div className="hidden sm:flex items-center gap-3">
@@ -106,6 +128,12 @@ export default function Nav({ user }: NavProps) {
               {link.label}
             </Link>
           ))}
+          <div className="mt-2 pt-2 border-t flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Currency:</span>
+              {currencySelect}
+            </div>
+          </div>
           <div className="mt-2 pt-2 border-t flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
               {user.image && (

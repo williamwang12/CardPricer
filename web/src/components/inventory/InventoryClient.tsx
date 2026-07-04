@@ -12,16 +12,12 @@ import {
   savePriceAction,
   deleteAllAction,
 } from "@/actions/cards";
+import { useCurrency } from "@/lib/currency-context";
 import type { Card, PriceMover } from "@/lib/types";
 
 interface Props {
   initialCards: Card[];
   lastRefreshed: string | null;
-}
-
-function fmt(price: number | null) {
-  if (price == null) return "—";
-  return `$${price.toFixed(2)}`;
 }
 
 function EditableCell({
@@ -77,6 +73,7 @@ function EditableCell({
 }
 
 export default function InventoryClient({ initialCards, lastRefreshed }: Props) {
+  const { fmt, currency, rate } = useCurrency();
   const [cards, setCards] = useState<Card[]>(initialCards);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
@@ -714,7 +711,7 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
                   const res = await fetch("/api/export/movers", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ movers, minPrice: moversMinPrice }),
+                    body: JSON.stringify({ movers, minPrice: moversMinPrice, currency, rate }),
                   });
                   if (!res.ok) throw new Error();
                   const blob = await res.blob();

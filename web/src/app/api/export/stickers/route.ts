@@ -9,10 +9,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { cardIds, format, logoBase64 } = (await req.json()) as {
+  const { cardIds, format, logoBase64, currency, rate } = (await req.json()) as {
     cardIds?: number[];
     format?: string;
     logoBase64?: string;
+    currency?: string;
+    rate?: number;
   };
 
   let cards = await loadAllCards(session.user.email);
@@ -25,7 +27,13 @@ export async function POST(req: NextRequest) {
     ? Buffer.from(logoBase64, "base64")
     : null;
 
-  const pdf = await generateStickerPdf(cards, logoBuffer, format ?? "avery5167");
+  const pdf = await generateStickerPdf(
+    cards,
+    logoBuffer,
+    format ?? "avery5167",
+    (currency as "USD") ?? "USD",
+    rate ?? 1
+  );
   return new NextResponse(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",

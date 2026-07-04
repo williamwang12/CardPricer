@@ -9,12 +9,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { movers, minPrice } = (await req.json()) as {
+  const { movers, minPrice, currency, rate } = (await req.json()) as {
     movers: PriceMover[];
     minPrice?: number;
+    currency?: string;
+    rate?: number;
   };
 
-  const buf = await exportMovers(movers, minPrice ?? 0);
+  const buf = await exportMovers(
+    movers,
+    minPrice ?? 0,
+    (currency as "USD") ?? "USD",
+    rate ?? 1
+  );
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

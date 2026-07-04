@@ -5,15 +5,12 @@ import { toast } from "sonner";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logBuyAction, logSellAction } from "@/actions/transactions";
+import { useCurrency } from "@/lib/currency-context";
 import type { Transaction } from "@/lib/types";
 
 interface Props {
   initialTransactions: Transaction[];
   cardNames: { name: string; number: string }[];
-}
-
-function fmt(amount: number) {
-  return `$${amount.toFixed(2)}`;
 }
 
 function formatDate(isoString: string) {
@@ -27,6 +24,7 @@ function formatDate(isoString: string) {
 }
 
 export default function TransactionClient({ initialTransactions, cardNames }: Props) {
+  const { fmt } = useCurrency();
   const [transactions, setTransactions] = useState(initialTransactions);
   const [type, setType] = useState<"buy" | "sell">("buy");
   const [cardName, setCardName] = useState("");

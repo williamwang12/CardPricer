@@ -19,6 +19,7 @@ import { upsertCardAction, removeStaleCardsAction } from "@/actions/sync";
 import { searchCardsAction, type CardSuggestion } from "@/actions/autocomplete";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { cn } from "@/lib/cn";
+import { useCurrency } from "@/lib/currency-context";
 import type { CardInput } from "@/lib/types";
 
 type Tab = "manual" | "tcgplayer" | "decktradr" | "collectr";
@@ -233,6 +234,7 @@ function CsvTab({
   type: "tcgplayer" | "decktradr";
   description: string;
 }) {
+  const { fmt } = useCurrency();
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<CardInput[]>([]);
   const [importing, setImporting] = useState(false);
@@ -332,7 +334,7 @@ function CsvTab({
                     <td className="px-3 py-1.5">{c.number || "—"}</td>
                     <td className="px-3 py-1.5">{c.quantity}</td>
                     <td className="px-3 py-1.5 text-right font-mono">
-                      {c.market_price != null ? `$${c.market_price.toFixed(2)}` : "—"}
+                      {fmt(c.market_price ?? null)}
                     </td>
                   </tr>
                 ))}
@@ -373,6 +375,7 @@ function CsvTab({
 
 // ── Collectr tab ─────────────────────────────────────────────────────────────
 function CollectrTab() {
+  const { fmt } = useCurrency();
   const fileRef = useRef<HTMLInputElement>(null);
   const [cards, setCards] = useState<CardInput[]>([]);
   const [addOnly, setAddOnly] = useState(false);
@@ -514,7 +517,7 @@ function CollectrTab() {
                     <td className="px-3 py-1.5">{c.number || "—"}</td>
                     <td className="px-3 py-1.5">{c.quantity}</td>
                     <td className="px-3 py-1.5 text-right font-mono">
-                      {c.market_price != null ? `$${c.market_price.toFixed(2)}` : "—"}
+                      {fmt(c.market_price ?? null)}
                     </td>
                   </tr>
                 ))}
