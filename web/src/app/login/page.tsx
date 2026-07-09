@@ -9,14 +9,14 @@ export default async function LoginPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50">
-      <div className="max-w-5xl mx-auto px-4 py-16 flex flex-col items-center gap-16">
+      <div className="max-w-5xl mx-auto px-4 py-10 sm:py-16 flex flex-col items-center gap-10 sm:gap-16">
         {/* Hero */}
         <div className="flex flex-col items-center gap-6 text-center">
           <img src="/logo.svg" alt="Card Parser" className="w-14 h-14 rounded-2xl shadow-sm" />
           <div className="flex flex-col gap-2">
             <h1 className="text-3xl font-bold tracking-tight">Card Parser</h1>
-            <p className="text-muted-foreground">
-              Price your entire inventory in 5 minutes. Save hours and label paper.
+            <p className="text-sm text-muted-foreground">
+              Price your cards in minutes, not hours
             </p>
           </div>
           <div className="flex flex-col gap-3">
@@ -62,11 +62,11 @@ export default async function LoginPage() {
         </div>
 
         {/* How It Works */}
-        <div className="w-full max-w-2xl flex flex-col gap-2">
-          <h2 className="text-lg font-semibold text-center mb-4">How it works</h2>
-          <div className="flex flex-col gap-6">
-            <div className="flex items-start gap-4">
-              <span className="flex-none flex items-center justify-center w-8 h-8 rounded-full bg-zinc-900 text-white text-sm font-semibold">1</span>
+        <div className="w-full max-w-2xl flex flex-col gap-1">
+          <h2 className="text-lg font-semibold text-center mb-2 sm:mb-4">How to Price in 5 Minutes</h2>
+          <div className="flex flex-col gap-3 sm:gap-6">
+            <div className="flex items-start gap-3 sm:gap-4">
+              <span className="flex-none flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-zinc-900 text-white text-xs sm:text-sm font-semibold">1</span>
               <div>
                 <p className="text-sm font-medium">Import your inventory</p>
                 <p className="text-xs text-muted-foreground">
@@ -74,8 +74,8 @@ export default async function LoginPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-start gap-4">
-              <span className="flex-none flex items-center justify-center w-8 h-8 rounded-full bg-zinc-900 text-white text-sm font-semibold">2</span>
+            <div className="flex items-start gap-3 sm:gap-4">
+              <span className="flex-none flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-zinc-900 text-white text-xs sm:text-sm font-semibold">2</span>
               <div>
                 <p className="text-sm font-medium">We track what changed</p>
                 <p className="text-xs text-muted-foreground">
@@ -83,8 +83,8 @@ export default async function LoginPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-start gap-4">
-              <span className="flex-none flex items-center justify-center w-8 h-8 rounded-full bg-zinc-900 text-white text-sm font-semibold">3</span>
+            <div className="flex items-start gap-3 sm:gap-4">
+              <span className="flex-none flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-zinc-900 text-white text-xs sm:text-sm font-semibold">3</span>
               <div>
                 <p className="text-sm font-medium">Download only what you need</p>
                 <p className="text-xs text-muted-foreground">

@@ -16,40 +16,36 @@ export interface CatalogCard {
   image_url: string | null;
 }
 
+// Exclude non-mainline sets (promos, special products, etc.)
+const EXCLUDE_PATTERNS = [
+  "%Promo%",
+  "%McDonald%",
+  "%Trick or Trade%",
+  "%Build & Battle%",
+  "%Battle Academy%",
+  "%Trainer Kit%",
+  "%Theme Deck%",
+  "%Oversized%",
+  "%Jumbo%",
+  "%Prize Pack%",
+  "%My First Battle%",
+  "%Deck Exclus%",
+  "%Best of Game%",
+  "%POP Series%",
+  "%Starter Deck%",
+];
+
 export async function getAllSets(): Promise<CatalogSet[]> {
-  const PAGE = 1000;
-  const rows: { group_id: number; group_name: string }[] = [];
-  let from = 0;
+  const { data, error } = await supabase.rpc("get_catalog_sets");
+  if (error) throw error;
 
-  while (true) {
-    const { data, error } = await supabase
-      .from(TABLE)
-      .select("group_id, group_name")
-      .range(from, from + PAGE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PAGE) break;
-    from += PAGE;
-  }
+  const exclude = EXCLUDE_PATTERNS.map((p) =>
+    p.replaceAll("%", "").toLowerCase()
+  );
 
-  const map = new Map<number, { group_name: string; count: number }>();
-  for (const row of rows) {
-    const existing = map.get(row.group_id);
-    if (existing) {
-      existing.count++;
-    } else {
-      map.set(row.group_id, { group_name: row.group_name, count: 1 });
-    }
-  }
-
-  const sets: CatalogSet[] = [];
-  for (const [group_id, { group_name, count }] of map) {
-    sets.push({ group_id, group_name, card_count: count });
-  }
-
-  sets.sort((a, b) => a.group_name.localeCompare(b.group_name));
-  return sets;
+  return (data as CatalogSet[]).filter(
+    (s) => !exclude.some((kw) => s.group_name.toLowerCase().includes(kw))
+  );
 }
 
 export async function getSetCards(groupId: number): Promise<CatalogCard[]> {

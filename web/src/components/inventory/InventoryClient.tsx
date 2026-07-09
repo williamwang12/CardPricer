@@ -10,6 +10,7 @@ import {
   updateCardAction,
   deleteCardsAction,
   savePriceAction,
+  saveCostBasisAction,
   deleteAllAction,
 } from "@/actions/cards";
 import { useCurrency } from "@/lib/currency-context";
@@ -93,6 +94,18 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
     0
   );
   const pricedCount = cards.filter((c) => c.market_price != null).length;
+
+  const totalCost = cards.reduce(
+    (sum, c) => sum + (c.cost_basis != null ? c.cost_basis * c.quantity : 0),
+    0
+  );
+  const totalPL = cards.reduce((sum, c) => {
+    if (c.market_price != null && c.cost_basis != null) {
+      return sum + (c.market_price - c.cost_basis) * c.quantity;
+    }
+    return sum;
+  }, 0);
+  const hasCostData = cards.some((c) => c.cost_basis != null);
 
   // ── Selection ──────────────────────────────────────────────────────────────
   const allSelected = cards.length > 0 && selected.size === cards.length;
@@ -293,6 +306,14 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
           <p className="text-sm text-muted-foreground flex flex-wrap gap-x-2">
             <span>{cards.length} cards · {pricedCount} priced</span>
             <span className="font-medium text-foreground">Total: {fmt(totalValue)}</span>
+            {hasCostData && (
+              <>
+                <span className="text-muted-foreground">Cost: {fmt(totalCost)}</span>
+                <span className={`font-medium ${totalPL >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  P/L: {totalPL >= 0 ? "+" : ""}{fmt(totalPL)}
+                </span>
+              </>
+            )}
             {lastRefreshed && (
               <span className="text-xs">
                 · Prices refreshed{" "}
@@ -439,6 +460,32 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
                       total {fmt(card.market_price * card.quantity)}
                     </span>
                   )}
+                  <span className="text-muted-foreground">
+                    Cost:{" "}
+                    <EditableCell
+                      value={card.cost_basis != null ? String(card.cost_basis) : ""}
+                      onSave={(v) => {
+                        const p = parseFloat(v);
+                        const cost = v === "" ? null : isNaN(p) ? null : Math.round(p * 100) / 100;
+                        setCards((prev) =>
+                          prev.map((c) =>
+                            c.id === card.id ? { ...c, cost_basis: cost } : c
+                          )
+                        );
+                        saveCostBasisAction(card.id, cost);
+                      }}
+                      type="number"
+                      className="inline w-16"
+                    />
+                  </span>
+                  {card.market_price != null && card.cost_basis != null && (() => {
+                    const pl = (card.market_price - card.cost_basis) * card.quantity;
+                    return (
+                      <span className={`font-mono text-xs font-medium ${pl >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        P/L: {pl >= 0 ? "+" : ""}{fmt(pl)}
+                      </span>
+                    );
+                  })()}
                   {card.tcgplayer_url && (
                     <a
                       href={card.tcgplayer_url}
@@ -487,7 +534,13 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
                     Price
                   </th>
                   <th className="h-10 px-3 text-right font-medium text-muted-foreground w-24">
+                    Cost
+                  </th>
+                  <th className="h-10 px-3 text-right font-medium text-muted-foreground w-24">
                     Total
+                  </th>
+                  <th className="h-10 px-3 text-right font-medium text-muted-foreground w-24">
+                    P/L
                   </th>
                   <th className="h-10 px-3 text-center font-medium text-muted-foreground w-12">
                     Link
@@ -560,10 +613,39 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
                         </span>
                       )}
                     </td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      <EditableCell
+                        value={card.cost_basis != null ? String(card.cost_basis) : ""}
+                        onSave={(v) => {
+                          const p = parseFloat(v);
+                          const cost = v === "" ? null : isNaN(p) ? null : Math.round(p * 100) / 100;
+                          setCards((prev) =>
+                            prev.map((c) =>
+                              c.id === card.id ? { ...c, cost_basis: cost } : c
+                            )
+                          );
+                          saveCostBasisAction(card.id, cost);
+                        }}
+                        type="number"
+                        className="text-right w-20"
+                      />
+                    </td>
                     <td className="px-3 py-2 text-right font-mono text-muted-foreground">
                       {card.market_price != null
                         ? fmt(card.market_price * card.quantity)
                         : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      {card.market_price != null && card.cost_basis != null ? (() => {
+                        const pl = (card.market_price - card.cost_basis) * card.quantity;
+                        return (
+                          <span className={`font-medium ${pl >= 0 ? "text-green-600" : "text-red-600"}`}>
+                            {pl >= 0 ? "+" : ""}{fmt(pl)}
+                          </span>
+                        );
+                      })() : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-center">
                       {card.tcgplayer_url ? (
@@ -598,7 +680,18 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
                   <td className="px-3 py-2 text-right font-semibold font-mono">
                     {fmt(totalValue)}
                   </td>
-                  <td colSpan={3} />
+                  <td className="px-3 py-2 text-right font-mono text-muted-foreground">
+                    {hasCostData ? fmt(totalCost) : ""}
+                  </td>
+                  <td />
+                  <td className="px-3 py-2 text-right font-mono">
+                    {hasCostData ? (
+                      <span className={`font-semibold ${totalPL >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {totalPL >= 0 ? "+" : ""}{fmt(totalPL)}
+                      </span>
+                    ) : ""}
+                  </td>
+                  <td colSpan={2} />
                 </tr>
               </tfoot>
             </table>

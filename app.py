@@ -11,6 +11,7 @@ import pandas as pd
 from models import Card
 from scraper import price_cards, search_tcgplayer
 from stickers import generate_sticker_pdf, sticker_count, labels_per_page, LABEL_FORMATS
+from auth import require_login, get_user_email, show_user_info
 from db import (
     load_all_cards,
     add_card,
@@ -26,29 +27,19 @@ from db import (
     rollback_import,
     massage_names,
     sync_collectr,
+    save_label_snapshot,
+    load_label_snapshot,
 )
 
 st.set_page_config(page_title="Pokemon Raw Card Inventory", layout="wide")
 
-# ── Password gate ────────────────────────────────────────────────────────────
+# ── Auth gate ─────────────────────────────────────────────────────────────────
 
-def check_password() -> bool:
-    """Show a login form and return True if the password is correct."""
-    if st.session_state.get("authenticated"):
-        return True
-
-    st.title("Pokemon Raw Card Inventory")
-    password = st.text_input("Password", type="password", key="login_pw")
-    if st.button("Log in", type="primary"):
-        if password == st.secrets.get("APP_PASSWORD", ""):
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("Incorrect password.")
-    return False
-
-if not check_password():
+if not require_login():
     st.stop()
+
+user_email = get_user_email()
+show_user_info()
 
 st.title("Pokemon Raw Card Inventory")
 st.caption("Track your collection, update prices from TCGPlayer, and export.")
@@ -153,7 +144,7 @@ def extract_pokemon_name(product_name: str) -> str:
 
 try:
     if "seeded" not in st.session_state:
-        n = seed_from_excel("ExistingInventory.xlsx")
+        n = seed_from_excel("ExistingInventory.xlsx", user_email)
         if n > 0:
             st.toast(f"Imported {n} cards from ExistingInventory.xlsx")
         st.session_state.seeded = True
@@ -161,7 +152,7 @@ try:
 
     # ── Load inventory ───────────────────────────────────────────────────────────
 
-    cards = load_all_cards()
+    cards = load_all_cards(user_email)
 except Exception as e:
     if "ConnectError" in type(e).__name__ or "ConnectError" in str(type(e)):
         st.error(
@@ -210,12 +201,12 @@ with st.expander("Log Transaction"):
     if st.button("Log Transaction", type="primary"):
         if tx_name.strip():
             if tx_type == "Buy":
-                buy_card(tx_name.strip(), tx_number.strip(), tx_qty, round(tx_amount, 2))
+                buy_card(tx_name.strip(), tx_number.strip(), tx_qty, round(tx_amount, 2), user_email)
                 st.toast(f"Logged buy: {tx_qty}x {tx_name.strip()}")
                 st.session_state.tx_form_key += 1
                 st.rerun()
             else:
-                err = sell_card(tx_name.strip(), tx_number.strip(), tx_qty, round(tx_amount, 2))
+                err = sell_card(tx_name.strip(), tx_number.strip(), tx_qty, round(tx_amount, 2), user_email)
                 if err:
                     st.error(err)
                 else:
@@ -226,7 +217,7 @@ with st.expander("Log Transaction"):
             st.error("Card name is required.")
 
     # Recent transactions table
-    recent_tx = get_transactions(limit=20)
+    recent_tx = get_transactions(user_email, limit=20)
     if recent_tx:
         st.subheader("Recent Transactions")
         tx_df = pd.DataFrame(recent_tx)
@@ -321,7 +312,7 @@ with st.expander("Add Cards"):
                     tcgplayer_url=url,
                     manual_price=is_manual,
                 )
-                add_card(card)
+                add_card(card, user_email)
                 price_str = f" (${final_price:.2f})" if final_price else ""
                 st.toast(f"Added {new_name.strip()}{price_str}")
                 st.session_state.checked_price = None
@@ -353,7 +344,7 @@ with st.expander("Add Cards"):
                     tcgplayer_url=url,
                     manual_price=is_manual,
                 )
-                add_card(card)
+                add_card(card, user_email)
                 st.toast(f"Added {new_name.strip()}")
                 st.session_state.checked_price = None
                 st.session_state.checked_url = None
@@ -408,7 +399,7 @@ with st.expander("Add Cards"):
                         if c.market_price is None:
                             c.market_price = price
                         c.tcgplayer_url = url
-                        add_card(c)
+                        add_card(c, user_email)
                         imported.append({"name": c.name, "number": c.number, "quantity": c.quantity})
                     progress_bar.progress(1.0, text="Done!")
                     st.session_state.csv_form_key += 1
@@ -467,7 +458,7 @@ with st.expander("Add Cards"):
                         price, url = search_tcgplayer(c)
                         c.market_price = price
                         c.tcgplayer_url = url
-                        add_card(c)
+                        add_card(c, user_email)
                         imported.append({"name": c.name, "number": c.number, "quantity": c.quantity})
                     progress_bar.progress(1.0, text="Done!")
                     st.session_state.decktradr_form_key += 1
@@ -567,7 +558,7 @@ with st.expander("Add Cards"):
                 )
 
             if st.button("Sync Inventory", type="primary", key=f"collectr_sync_{clk}"):
-                m, a, r = sync_collectr(collectr_cards, add_only=add_only)
+                m, a, r = sync_collectr(collectr_cards, user_email, add_only=add_only)
                 st.session_state.collectr_form_key += 1
                 st.session_state.collectr_result = (m, a, r)
                 st.rerun()
@@ -581,7 +572,7 @@ with st.expander("Add Cards"):
     if st.session_state.get("last_import"):
         n = len(st.session_state.last_import)
         if st.button(f"Undo last import ({n} cards)", type="secondary"):
-            rolled = rollback_import(st.session_state.last_import)
+            rolled = rollback_import(st.session_state.last_import, user_email)
             del st.session_state.last_import
             st.toast(f"Rolled back {rolled} cards")
             st.rerun()
@@ -623,7 +614,7 @@ with st.expander("Add Cards"):
                 if not import_cards:
                     st.error("No valid cards found. Check your column mapping.")
                 else:
-                    count = replace_all_cards(import_cards)
+                    count = replace_all_cards(import_cards, user_email)
                     st.toast(f"Replaced inventory with {count} cards")
                     st.rerun()
 
@@ -697,14 +688,14 @@ if cards:
             st.rerun()
     with sb2:
         if st.button("Fix Card Names"):
-            n = massage_names()
+            n = massage_names(user_email)
             st.toast(f"Fixed {n} card names" if n else "All names already clean")
             if n:
                 st.rerun()
     with sb3:
         confirm_delete_all = st.checkbox("Confirm", key="confirm_delete_all")
         if st.button("Delete All", type="secondary", disabled=not confirm_delete_all):
-            replace_all_cards([])
+            replace_all_cards([], user_email)
             st.toast("Deleted all cards from inventory")
             st.rerun()
 
@@ -884,12 +875,123 @@ if cards:
             )
         with ec2:
             price_bytes = export_price_list(export_cards)
-            st.download_button(
+            if st.download_button(
                 label="Download Price List (.xlsx)",
                 data=price_bytes,
                 file_name="price_list.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ):
+                from datetime import datetime, timezone
+                now_iso = datetime.now(timezone.utc).isoformat()
+                snapshot_data = [
+                    {"name": c.name, "number": c.number, "market_price": c.market_price}
+                    for c in export_cards
+                ]
+                st.session_state["label_snapshot_cards"] = snapshot_data
+                st.session_state["label_snapshot_date"] = now_iso
+                save_label_snapshot(export_cards, user_email)
+
+        # ── Changes Since Last Download ──────────────────────────────────────
+        # Prefer session state (just downloaded) then fall back to DB
+        if "label_snapshot_cards" not in st.session_state:
+            db_cards, db_date = load_label_snapshot(user_email)
+            if db_cards:
+                st.session_state["label_snapshot_cards"] = db_cards
+                st.session_state["label_snapshot_date"] = db_date
+
+        snapshot_cards = st.session_state.get("label_snapshot_cards", [])
+        snapshot_date = st.session_state.get("label_snapshot_date")
+
+        if snapshot_cards:
+            st.divider()
+            st.subheader("Changes Since Last Download")
+
+            try:
+                dt = datetime.fromisoformat(snapshot_date.replace("Z", "+00:00"))
+                date_str = dt.astimezone().strftime("%b %d, %Y %I:%M %p")
+            except Exception:
+                date_str = snapshot_date or "unknown"
+            st.caption(f"Last downloaded: {date_str}")
+
+            mover_threshold = st.number_input(
+                "Price change threshold ($)", min_value=0.0, value=1.0, step=0.50,
+                format="%.2f", key="snapshot_mover_threshold",
             )
+
+            snapshot_lookup: dict[tuple[str, str], float | None] = {
+                (c["name"].lower(), c["number"]): c.get("market_price")
+                for c in snapshot_cards
+            }
+            snapshot_keys = set(snapshot_lookup.keys())
+
+            newcomers = [
+                c for c in export_cards
+                if (c.name.lower(), c.number) not in snapshot_keys
+            ]
+
+            price_movers_since = []
+            for c in export_cards:
+                key = (c.name.lower(), c.number)
+                if key in snapshot_lookup:
+                    old = snapshot_lookup[key]
+                    new = c.market_price
+                    if old is not None and new is not None and abs(new - old) >= mover_threshold:
+                        price_movers_since.append(c)
+
+            st.info(
+                f"📦 **{len(newcomers)}** newcomer(s) · "
+                f"📈 **{len(price_movers_since)}** price mover(s) "
+                f"(±${mover_threshold:.2f}+)"
+            )
+
+            # Deduplicated combined list preserving order
+            seen: set[tuple[str, str]] = set()
+            combined_changes: list = []
+            for c in newcomers + price_movers_since:
+                key = (c.name, c.number)
+                if key not in seen:
+                    seen.add(key)
+                    combined_changes.append(c)
+
+            sc1, sc2, sc3 = st.columns(3)
+            with sc1:
+                if newcomers:
+                    nc_bytes = export_price_list(newcomers)
+                    st.download_button(
+                        label=f"Download Newcomers ({len(newcomers)})",
+                        data=nc_bytes,
+                        file_name="newcomers.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_newcomers",
+                    )
+                else:
+                    st.button("Download Newcomers (0)", disabled=True, key="dl_newcomers_dis")
+            with sc2:
+                if price_movers_since:
+                    pm_bytes = export_price_list(price_movers_since)
+                    st.download_button(
+                        label=f"Download Price Movers ({len(price_movers_since)})",
+                        data=pm_bytes,
+                        file_name="price_movers_since.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_movers_since",
+                    )
+                else:
+                    st.button(
+                        f"Download Price Movers (0)", disabled=True, key="dl_movers_since_dis"
+                    )
+            with sc3:
+                if combined_changes:
+                    cb_bytes = export_price_list(combined_changes)
+                    st.download_button(
+                        label=f"Download Both ({len(combined_changes)})",
+                        data=cb_bytes,
+                        file_name="changes_since_last.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_changes_combined",
+                    )
+                else:
+                    st.button("Download Both (0)", disabled=True, key="dl_changes_combined_dis")
 
         # Sticker sheet
         st.subheader("Sticker Sheet")

@@ -71,6 +71,15 @@ export async function savePriceAction(
   });
 }
 
+export async function saveCostBasisAction(
+  cardId: number,
+  costBasis: number | null
+): Promise<void> {
+  await getUserEmail();
+  await updateCard(cardId, { cost_basis: costBasis });
+  revalidatePath("/inventory");
+}
+
 export async function massageNamesAction() {
   const email = await getUserEmail();
   const count = await massageNames(email);

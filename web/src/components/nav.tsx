@@ -1,34 +1,84 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X } from "lucide-react";
+import { Menu, X, ChevronDown } from "lucide-react";
 import { signOutAction } from "@/actions/auth";
 import { cn } from "@/lib/cn";
 import { useCurrency } from "@/lib/currency-context";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 
-const NAV_LINKS = [
+const PRIMARY_LINKS = [
   { href: "/inventory", label: "Inventory" },
   { href: "/add", label: "Add Cards" },
-  { href: "/transactions", label: "Transactions" },
-  { href: "/export", label: "Export" },
   { href: "/catalog", label: "Catalog" },
+  { href: "/events", label: "Events" },
 ];
 
+const MORE_LINKS = [
+  { href: "/transactions", label: "Transactions" },
+  { href: "/export", label: "Export" },
+  { href: "/shows", label: "Shows" },
+  { href: "/dead-inventory", label: "Dead Inventory" },
+];
+
+const ALL_LINKS = [...PRIMARY_LINKS, ...MORE_LINKS];
+
 interface NavProps {
-  user: {
+  user?: {
     name?: string | null;
     email?: string | null;
     image?: string | null;
-  };
+  } | null;
+  isAdmin?: boolean;
 }
 
-export default function Nav({ user }: NavProps) {
+export default function Nav({ user, isAdmin }: NavProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
   const { currency, setCurrency } = useCurrency();
+
+  const moreLinks = isAdmin
+    ? [...MORE_LINKS, { href: "/admin/events", label: "Admin" }]
+    : MORE_LINKS;
+
+  const allLinks = isAdmin
+    ? [...ALL_LINKS, { href: "/admin/events", label: "Admin" }]
+    : ALL_LINKS;
+
+  const moreIsActive = moreLinks.some((link) => pathname.startsWith(link.href));
+
+  // Close "More" dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setMoreOpen(false);
+      }
+    }
+    if (moreOpen) {
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }
+  }, [moreOpen]);
+
+  const linkClass = (href: string) =>
+    cn(
+      "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+      pathname.startsWith(href)
+        ? "bg-primary text-primary-foreground"
+        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+    );
+
+  const mobileLinkClass = (href: string) =>
+    cn(
+      "px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+      pathname.startsWith(href)
+        ? "bg-primary text-primary-foreground"
+        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+    );
 
   const currencySelect = (
     <select
@@ -55,21 +105,47 @@ export default function Nav({ user }: NavProps) {
         </div>
 
         {/* Desktop nav links */}
-        <nav className="hidden sm:flex gap-1 flex-1">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
+        <nav className="hidden sm:flex gap-1 flex-1 items-center">
+          {PRIMARY_LINKS.map((link) => (
+            <Link key={link.href} href={link.href} className={linkClass(link.href)}>
+              {link.label}
+            </Link>
+          ))}
+
+          {/* More dropdown */}
+          <div ref={moreRef} className="relative">
+            <button
+              onClick={() => setMoreOpen((o) => !o)}
               className={cn(
-                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                pathname.startsWith(link.href)
+                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors inline-flex items-center gap-1",
+                moreIsActive
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
             >
-              {link.label}
-            </Link>
-          ))}
+              More
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", moreOpen && "rotate-180")} />
+            </button>
+            {moreOpen && (
+              <div className="absolute top-full left-0 mt-1 w-44 rounded-md border border-border bg-white shadow-sm py-1 z-20">
+                {moreLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMoreOpen(false)}
+                    className={cn(
+                      "block px-3 py-2 text-sm transition-colors",
+                      pathname.startsWith(link.href)
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    )}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* Desktop currency selector */}
@@ -79,25 +155,36 @@ export default function Nav({ user }: NavProps) {
 
         {/* Desktop user / sign-out */}
         <div className="hidden sm:flex items-center gap-3">
-          {user.image && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={user.image}
-              className="w-7 h-7 rounded-full"
-              alt={user.name ?? ""}
-            />
-          )}
-          <span className="text-sm text-muted-foreground">
-            {user.name ?? user.email}
-          </span>
-          <form action={signOutAction}>
-            <button
-              type="submit"
+          {user ? (
+            <>
+              {user.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={user.image}
+                  className="w-7 h-7 rounded-full"
+                  alt={user.name ?? ""}
+                />
+              )}
+              <span className="text-sm text-muted-foreground">
+                {user.name ?? user.email}
+              </span>
+              <form action={signOutAction}>
+                <button
+                  type="submit"
+                  className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors"
+                >
+                  Sign out
+                </button>
+              </form>
+            </>
+          ) : (
+            <Link
+              href="/login"
               className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors"
             >
-              Sign out
-            </button>
-          </form>
+              Sign in
+            </Link>
+          )}
         </div>
 
         {/* Mobile hamburger */}
@@ -113,17 +200,12 @@ export default function Nav({ user }: NavProps) {
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="sm:hidden border-t bg-white px-4 py-3 flex flex-col gap-1">
-          {NAV_LINKS.map((link) => (
+          {allLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               onClick={() => setMobileOpen(false)}
-              className={cn(
-                "px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-                pathname.startsWith(link.href)
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}
+              className={mobileLinkClass(link.href)}
             >
               {link.label}
             </Link>
@@ -135,27 +217,39 @@ export default function Nav({ user }: NavProps) {
             </div>
           </div>
           <div className="mt-2 pt-2 border-t flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              {user.image && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={user.image}
-                  className="w-7 h-7 rounded-full flex-shrink-0"
-                  alt={user.name ?? ""}
-                />
-              )}
-              <span className="text-sm text-muted-foreground truncate">
-                {user.name ?? user.email}
-              </span>
-            </div>
-            <form action={signOutAction}>
-              <button
-                type="submit"
-                className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors flex-shrink-0"
+            {user ? (
+              <>
+                <div className="flex items-center gap-2 min-w-0">
+                  {user.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={user.image}
+                      className="w-7 h-7 rounded-full flex-shrink-0"
+                      alt={user.name ?? ""}
+                    />
+                  )}
+                  <span className="text-sm text-muted-foreground truncate">
+                    {user.name ?? user.email}
+                  </span>
+                </div>
+                <form action={signOutAction}>
+                  <button
+                    type="submit"
+                    className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors flex-shrink-0"
+                  >
+                    Sign out
+                  </button>
+                </form>
+              </>
+            ) : (
+              <Link
+                href="/login"
+                onClick={() => setMobileOpen(false)}
+                className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors"
               >
-                Sign out
-              </button>
-            </form>
+                Sign in
+              </Link>
+            )}
           </div>
         </div>
       )}

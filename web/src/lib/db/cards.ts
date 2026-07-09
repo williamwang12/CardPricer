@@ -39,6 +39,7 @@ export async function addCard(card: CardInput, userEmail: string): Promise<void>
     };
     if (card.tcgplayer_url) updates.tcgplayer_url = card.tcgplayer_url;
     if (card.market_price != null) updates.market_price = card.market_price;
+    if (card.cost_basis != null) updates.cost_basis = card.cost_basis;
     await supabase.from(TABLE).update(updates).eq("id", row.id);
   } else {
     await supabase.from(TABLE).upsert(
@@ -47,6 +48,7 @@ export async function addCard(card: CardInput, userEmail: string): Promise<void>
         number: card.number,
         quantity: card.quantity,
         market_price: card.market_price ?? null,
+        cost_basis: card.cost_basis ?? null,
         tcgplayer_url: card.tcgplayer_url ?? null,
         manual_price: card.manual_price ?? false,
         user_email: userEmail,
@@ -94,6 +96,7 @@ export async function replaceAllCards(
     number: c.number,
     quantity: c.quantity,
     market_price: c.market_price ?? null,
+    cost_basis: c.cost_basis ?? null,
     tcgplayer_url: c.tcgplayer_url ?? null,
     manual_price: c.manual_price ?? false,
     user_email: userEmail,
@@ -114,6 +117,7 @@ export async function saveEdits(
     Name: "name",
     Number: "number",
     Qty: "quantity",
+    Cost: "cost_basis",
     Manual: "manual_price",
   };
 
@@ -136,6 +140,7 @@ export async function saveEdits(
       if (col in changes) {
         const val = changes[col];
         if (col === "Qty") updates[field] = Number(val);
+        else if (col === "Cost") updates[field] = val == null || val === "" ? null : Number(val);
         else if (col === "Manual") updates[field] = Boolean(val);
         else updates[field] = String(val).trim();
       }

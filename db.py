@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
+from datetime import datetime, timezone
 from typing import Optional
 
 import streamlit as st
@@ -14,6 +16,7 @@ from models import Card
 
 TABLE = "cards"
 TX_TABLE = "transactions"
+SNAPSHOT_TABLE = "label_snapshots"
 
 
 # ── Client ────────────────────────────────────────────────────────────────────
@@ -48,30 +51,31 @@ def _row_to_card(row: dict) -> Card:
 # ── Reads ─────────────────────────────────────────────────────────────────────
 
 
-def load_all_cards() -> list[Card]:
-    """SELECT all cards, ordered by name."""
+def load_all_cards(user_email: str) -> list[Card]:
+    """SELECT all cards for a user, ordered by name."""
     sb = _get_client()
-    resp = sb.table(TABLE).select("*").order("name").execute()
+    resp = sb.table(TABLE).select("*").eq("user_email", user_email).order("name").execute()
     return [_row_to_card(r) for r in resp.data]
 
 
-def card_count() -> int:
-    """Return total number of rows (for checking if DB is empty)."""
+def card_count(user_email: str) -> int:
+    """Return total number of rows for a user."""
     sb = _get_client()
-    resp = sb.table(TABLE).select("id", count="exact").execute()
+    resp = sb.table(TABLE).select("id", count="exact").eq("user_email", user_email).execute()
     return resp.count or 0
 
 
 # ── Writes ────────────────────────────────────────────────────────────────────
 
 
-def add_card(card: Card) -> None:
-    """Upsert a single card. If name+number already exists, increment qty."""
+def add_card(card: Card, user_email: str) -> None:
+    """Upsert a single card. If name+number already exists for this user, increment qty."""
     sb = _get_client()
-    # Check for existing card with same name+number
+    # Check for existing card with same name+number for this user
     resp = (
         sb.table(TABLE)
         .select("id, quantity")
+        .eq("user_email", user_email)
         .eq("name", card.name)
         .eq("number", card.number)
         .execute()
@@ -92,14 +96,15 @@ def add_card(card: Card) -> None:
             "market_price": card.market_price,
             "tcgplayer_url": card.tcgplayer_url,
             "manual_price": card.manual_price,
+            "user_email": user_email,
         }).execute()
 
 
-def add_cards_bulk(cards: list[Card]) -> int:
+def add_cards_bulk(cards: list[Card], user_email: str) -> int:
     """Insert/upsert a list of cards. Returns count added."""
     count = 0
     for card in cards:
-        add_card(card)
+        add_card(card, user_email)
         count += 1
     return count
 
@@ -128,10 +133,10 @@ def delete_cards(card_ids: list[int]) -> None:
         sb.table(TABLE).delete().eq("id", cid).execute()
 
 
-def replace_all_cards(cards: list[Card]) -> int:
-    """Delete entire inventory and insert new cards. Returns count inserted."""
+def replace_all_cards(cards: list[Card], user_email: str) -> int:
+    """Delete current user's inventory and insert new cards. Returns count inserted."""
     sb = _get_client()
-    sb.table(TABLE).delete().neq("id", 0).execute()
+    sb.table(TABLE).delete().eq("user_email", user_email).execute()
     rows = [
         {
             "name": c.name,
@@ -140,6 +145,7 @@ def replace_all_cards(cards: list[Card]) -> int:
             "market_price": c.market_price,
             "tcgplayer_url": c.tcgplayer_url,
             "manual_price": c.manual_price,
+            "user_email": user_email,
         }
         for c in cards
     ]
@@ -209,9 +215,9 @@ def save_edits(
     return num_updated, num_deleted
 
 
-def seed_from_excel(filepath: str) -> int:
-    """If DB is empty, import cards from an Excel file. Returns count imported."""
-    if card_count() > 0:
+def seed_from_excel(filepath: str, user_email: str) -> int:
+    """If DB is empty for this user, import cards from an Excel file. Returns count imported."""
+    if card_count(user_email) > 0:
         return 0
     if not os.path.exists(filepath):
         return 0
@@ -251,14 +257,15 @@ def seed_from_excel(filepath: str) -> int:
 
         cards.append(Card(name=name, number=number, quantity=quantity))
 
-    return add_cards_bulk(cards)
+    return add_cards_bulk(cards, user_email)
 
 
 # ── Transactions ─────────────────────────────────────────────────────────────
 
 
 def log_transaction(
-    tx_type: str, card_name: str, card_number: str, quantity: int, amount: float
+    tx_type: str, card_name: str, card_number: str, quantity: int, amount: float,
+    user_email: str,
 ) -> None:
     """Insert a row into the transactions table."""
     sb = _get_client()
@@ -268,15 +275,17 @@ def log_transaction(
         "card_number": card_number,
         "quantity": quantity,
         "amount": amount,
+        "user_email": user_email,
     }).execute()
 
 
-def get_transactions(limit: int = 50) -> list[dict]:
-    """Return recent transactions ordered by created_at DESC."""
+def get_transactions(user_email: str, limit: int = 50) -> list[dict]:
+    """Return recent transactions for a user ordered by created_at DESC."""
     sb = _get_client()
     resp = (
         sb.table(TX_TABLE)
         .select("*")
+        .eq("user_email", user_email)
         .order("created_at", desc=True)
         .limit(limit)
         .execute()
@@ -284,13 +293,15 @@ def get_transactions(limit: int = 50) -> list[dict]:
     return resp.data
 
 
-def buy_card(card_name: str, card_number: str, quantity: int, amount: float) -> None:
+def buy_card(card_name: str, card_number: str, quantity: int, amount: float,
+             user_email: str) -> None:
     """Add/increment card in inventory and log a buy transaction."""
-    add_card(Card(name=card_name, number=card_number, quantity=quantity))
-    log_transaction("buy", card_name, card_number, quantity, amount)
+    add_card(Card(name=card_name, number=card_number, quantity=quantity), user_email)
+    log_transaction("buy", card_name, card_number, quantity, amount, user_email)
 
 
-def sell_card(card_name: str, card_number: str, quantity: int, amount: float) -> str | None:
+def sell_card(card_name: str, card_number: str, quantity: int, amount: float,
+              user_email: str) -> str | None:
     """Decrement card qty (delete if 0) and log a sell transaction.
 
     Returns an error message string if the sale can't be completed, else None.
@@ -299,6 +310,7 @@ def sell_card(card_name: str, card_number: str, quantity: int, amount: float) ->
     resp = (
         sb.table(TABLE)
         .select("id, quantity")
+        .eq("user_email", user_email)
         .eq("name", card_name)
         .eq("number", card_number)
         .execute()
@@ -316,11 +328,11 @@ def sell_card(card_name: str, card_number: str, quantity: int, amount: float) ->
     else:
         sb.table(TABLE).update({"quantity": new_qty}).eq("id", existing["id"]).execute()
 
-    log_transaction("sell", card_name, card_number, quantity, amount)
+    log_transaction("sell", card_name, card_number, quantity, amount, user_email)
     return None
 
 
-def rollback_import(imported: list[dict]) -> int:
+def rollback_import(imported: list[dict], user_email: str) -> int:
     """Reverse a CSV import by decrementing qty (or deleting) each card.
 
     imported: list of {"name": str, "number": str, "quantity": int}
@@ -332,6 +344,7 @@ def rollback_import(imported: list[dict]) -> int:
         resp = (
             sb.table(TABLE)
             .select("id, quantity")
+            .eq("user_email", user_email)
             .eq("name", item["name"])
             .eq("number", item["number"])
             .execute()
@@ -348,7 +361,8 @@ def rollback_import(imported: list[dict]) -> int:
     return count
 
 
-def sync_collectr(collectr_cards: list[Card], add_only: bool = False) -> tuple[int, int, int]:
+def sync_collectr(collectr_cards: list[Card], user_email: str,
+                  add_only: bool = False) -> tuple[int, int, int]:
     """Sync inventory to match a Collectr CSV import.
 
     - Matched cards (by lowercase name + number): update quantity, fill in price if missing.
@@ -360,7 +374,7 @@ def sync_collectr(collectr_cards: list[Card], add_only: bool = False) -> tuple[i
     Returns (matched, added, removed).
     """
     sb = _get_client()
-    existing = load_all_cards()
+    existing = load_all_cards(user_email)
 
     # Merge duplicate Collectr rows (e.g. same card, different grade)
     merged: dict[tuple[str, str], Card] = {}
@@ -399,6 +413,7 @@ def sync_collectr(collectr_cards: list[Card], add_only: bool = False) -> tuple[i
                 "number": cc.number,
                 "quantity": cc.quantity,
                 "market_price": cc.market_price,
+                "user_email": user_email,
             }).execute()
             added += 1
 
@@ -413,6 +428,56 @@ def sync_collectr(collectr_cards: list[Card], add_only: bool = False) -> tuple[i
     return matched, added, removed
 
 
+# ── Label Snapshots ───────────────────────────────────────────────────────────
+
+
+def save_label_snapshot(cards: list[Card], user_email: str) -> str | None:
+    """Persist a snapshot of the exported price list for this user.
+
+    Stores one row per user (upsert). Requires a ``label_snapshots`` table:
+
+        CREATE TABLE label_snapshots (
+            user_email    TEXT PRIMARY KEY,
+            downloaded_at TIMESTAMPTZ DEFAULT NOW(),
+            cards_json    TEXT NOT NULL
+        );
+
+    Returns an error message string on failure, or None on success.
+    """
+    sb = _get_client()
+    cards_data = [
+        {"name": c.name, "number": c.number, "market_price": c.market_price}
+        for c in cards
+    ]
+    try:
+        sb.table(SNAPSHOT_TABLE).upsert({
+            "user_email": user_email,
+            "downloaded_at": datetime.now(timezone.utc).isoformat(),
+            "cards_json": json.dumps(cards_data),
+        }).execute()
+        return None
+    except Exception as e:
+        return str(e)
+
+
+def load_label_snapshot(user_email: str) -> tuple[list[dict], str | None]:
+    """Return (cards_data, downloaded_at_iso) for the last snapshot, or ([], None)."""
+    sb = _get_client()
+    try:
+        resp = (
+            sb.table(SNAPSHOT_TABLE)
+            .select("cards_json, downloaded_at")
+            .eq("user_email", user_email)
+            .execute()
+        )
+        if resp.data:
+            row = resp.data[0]
+            return json.loads(row["cards_json"]), row.get("downloaded_at")
+    except Exception:
+        pass
+    return [], None
+
+
 _UPPERCASE_KEYWORDS = re.compile(r'\b(ex|vstar|vmax)\b', re.IGNORECASE)
 
 
@@ -423,10 +488,10 @@ def _normalize_name(name: str) -> str:
     return name
 
 
-def massage_names() -> int:
-    """Normalize all card names in the DB. Returns count updated."""
+def massage_names(user_email: str) -> int:
+    """Normalize all card names in the DB for a user. Returns count updated."""
     sb = _get_client()
-    resp = sb.table(TABLE).select("id, name").execute()
+    resp = sb.table(TABLE).select("id, name").eq("user_email", user_email).execute()
     count = 0
     for row in resp.data:
         new_name = _normalize_name(row["name"])
