@@ -13,13 +13,15 @@ export function formatPrice(
   usdPrice: number | null,
   currencyCode: CurrencyCode = "USD",
   rate = 1,
-  roundingMode: "round" | "ceil" | "floor" = "round"
+  roundingMode: "round" | "ceil" | "floor" = "round",
+  decimalOverride?: number
 ): string {
   if (usdPrice == null) return "\u2014";
 
   const info = SUPPORTED_CURRENCIES[currencyCode];
   const converted = usdPrice * rate;
-  const factor = Math.pow(10, info.decimals);
+  const decimals = decimalOverride ?? info.decimals;
+  const factor = Math.pow(10, decimals);
 
   let rounded: number;
   switch (roundingMode) {
@@ -33,5 +35,5 @@ export function formatPrice(
       rounded = Math.round(converted * factor) / factor;
   }
 
-  return `${info.symbol}${rounded.toFixed(info.decimals)}`;
+  return `${info.symbol}${rounded.toFixed(decimals)}`;
 }

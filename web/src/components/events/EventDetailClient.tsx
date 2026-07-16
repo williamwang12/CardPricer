@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { useCurrency } from "@/lib/currency-context";
+import { useCurrency } from "@/components/currency-context";
 import { rsvpAction, unRsvpAction } from "@/actions/events";
 import { saveListingAction, deleteListingAction } from "@/actions/marketplace";
 import MarketplaceBrowser from "@/components/events/MarketplaceBrowser";
@@ -158,7 +158,7 @@ export default function EventDetailClient({
           </Button>
         </Link>
         <div className="flex flex-col gap-0.5 flex-1">
-          <h1 className="text-xl font-semibold">{event.name}</h1>
+          <h1 className="font-heading text-xl font-semibold">{event.name}</h1>
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <CalendarDays className="h-3.5 w-3.5" />

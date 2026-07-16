@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { loadAllCards } from "@/lib/db/cards";
-import { exportInventory } from "@/lib/excel";
+import { exportInventory } from "@/lib/export/excel";
 
 export async function POST(req: NextRequest) {
   const session = await auth();

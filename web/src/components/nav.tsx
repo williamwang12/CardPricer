@@ -6,21 +6,24 @@ import { usePathname } from "next/navigation";
 import { Menu, X, ChevronDown } from "lucide-react";
 import { signOutAction } from "@/actions/auth";
 import { cn } from "@/lib/cn";
-import { useCurrency } from "@/lib/currency-context";
+import { useCurrency } from "@/components/currency-context";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 
 const PRIMARY_LINKS = [
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/inventory", label: "Inventory" },
   { href: "/add", label: "Add Cards" },
   { href: "/catalog", label: "Catalog" },
+  { href: "/charts", label: "Charts" },
+  { href: "/export", label: "Export" },
   { href: "/events", label: "Events" },
 ];
 
 const MORE_LINKS = [
   { href: "/transactions", label: "Transactions" },
-  { href: "/export", label: "Export" },
-  { href: "/shows", label: "Shows" },
+  { href: "/shows", label: "My Shows" },
   { href: "/dead-inventory", label: "Dead Inventory" },
+  { href: "/feedback", label: "Suggest Feature" },
 ];
 
 const ALL_LINKS = [...PRIMARY_LINKS, ...MORE_LINKS];
@@ -51,7 +54,6 @@ export default function Nav({ user, isAdmin }: NavProps) {
 
   const moreIsActive = moreLinks.some((link) => pathname.startsWith(link.href));
 
-  // Close "More" dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
@@ -66,7 +68,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
 
   const linkClass = (href: string) =>
     cn(
-      "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+      "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
       pathname.startsWith(href)
         ? "bg-primary text-primary-foreground"
         : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -74,7 +76,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
 
   const mobileLinkClass = (href: string) =>
     cn(
-      "px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+      "px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
       pathname.startsWith(href)
         ? "bg-primary text-primary-foreground"
         : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -84,7 +86,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
     <select
       value={currency}
       onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
-      className="h-8 rounded-md border border-input bg-white px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+      className="h-8 rounded-lg border border-input bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30 cursor-pointer"
     >
       {Object.values(SUPPORTED_CURRENCIES).map((c) => (
         <option key={c.code} value={c.code}>
@@ -95,14 +97,15 @@ export default function Nav({ user, isAdmin }: NavProps) {
   );
 
   return (
-    <header className="border-b bg-white sticky top-0 z-10">
-      {/* Main bar */}
+    <header className="border-b border-border bg-white sticky top-0 z-10">
       <div className="container mx-auto px-4 max-w-7xl flex items-center h-14 gap-4">
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <Link href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="Card Parser" className="w-7 h-7 rounded-lg" />
-          <span className="font-bold text-base tracking-tight">Card Parser</span>
-        </div>
+          <img src="/logo.svg" alt="CardParser" className="w-7 h-7 rounded-lg" />
+          <span className="font-heading font-bold text-base tracking-tight">
+            CardParser
+          </span>
+        </Link>
 
         {/* Desktop nav links */}
         <nav className="hidden sm:flex gap-1 flex-1 items-center">
@@ -112,12 +115,11 @@ export default function Nav({ user, isAdmin }: NavProps) {
             </Link>
           ))}
 
-          {/* More dropdown */}
           <div ref={moreRef} className="relative">
             <button
               onClick={() => setMoreOpen((o) => !o)}
               className={cn(
-                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors inline-flex items-center gap-1",
+                "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1",
                 moreIsActive
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -127,7 +129,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", moreOpen && "rotate-180")} />
             </button>
             {moreOpen && (
-              <div className="absolute top-full left-0 mt-1 w-44 rounded-md border border-border bg-white shadow-sm py-1 z-20">
+              <div className="absolute top-full left-0 mt-1 w-44 rounded-lg border border-border bg-white shadow-lg py-1 z-20">
                 {moreLinks.map((link) => (
                   <Link
                     key={link.href}
@@ -171,7 +173,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
               <form action={signOutAction}>
                 <button
                   type="submit"
-                  className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors"
+                  className="text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
                 >
                   Sign out
                 </button>
@@ -180,7 +182,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
           ) : (
             <Link
               href="/login"
-              className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors"
+              className="text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
             >
               Sign in
             </Link>
@@ -189,7 +191,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
 
         {/* Mobile hamburger */}
         <button
-          className="sm:hidden ml-auto p-1.5 rounded-md hover:bg-muted transition-colors"
+          className="sm:hidden ml-auto p-1.5 rounded-lg hover:bg-muted transition-colors"
           onClick={() => setMobileOpen((o) => !o)}
           aria-label="Toggle menu"
         >
@@ -235,7 +237,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
                 <form action={signOutAction}>
                   <button
                     type="submit"
-                    className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors flex-shrink-0"
+                    className="text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors flex-shrink-0"
                   >
                     Sign out
                   </button>
@@ -245,7 +247,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
               <Link
                 href="/login"
                 onClick={() => setMobileOpen(false)}
-                className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors"
+                className="text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
               >
                 Sign in
               </Link>

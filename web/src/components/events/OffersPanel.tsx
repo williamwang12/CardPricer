@@ -6,7 +6,7 @@ import { Check, X, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { useCurrency } from "@/lib/currency-context";
+import { useCurrency } from "@/components/currency-context";
 import {
   acceptOfferAction,
   declineOfferAction,

@@ -9,17 +9,17 @@ import {
   parseTcgPlayerCsv,
   parseDeckTradrCsv,
   parseCollectrCsv,
-} from "@/lib/parse-csv";
+} from "@/lib/export/parse-csv";
 import {
   addCardAction,
   replaceAllAction,
   rollbackImportAction,
 } from "@/actions/cards";
-import { upsertCardAction, removeStaleCardsAction } from "@/actions/sync";
+import { upsertCardAction, removeStaleCardsAction, refreshPricesAction } from "@/actions/sync";
 import { searchCardsAction, type CardSuggestion } from "@/actions/autocomplete";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { cn } from "@/lib/cn";
-import { useCurrency } from "@/lib/currency-context";
+import { useCurrency } from "@/components/currency-context";
 import type { CardInput } from "@/lib/types";
 
 type Tab = "manual" | "tcgplayer" | "decktradr" | "collectr";
@@ -446,6 +446,13 @@ function CollectrTab() {
       }
     }
 
+    setProgressLabel("Refreshing prices…");
+    try {
+      await refreshPricesAction();
+    } catch {
+      // continue
+    }
+
     setSyncing(false);
     setProgressLabel("");
     setResult({ matched, added, removed });
@@ -558,7 +565,7 @@ export default function AddCardsClient() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-semibold">Add Cards</h1>
+      <h1 className="font-heading text-xl font-semibold">Add Cards</h1>
 
       {/* Tab bar */}
       <div className="flex gap-1 border-b overflow-x-auto scrollbar-none">

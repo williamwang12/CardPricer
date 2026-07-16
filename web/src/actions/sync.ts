@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { syncCollectr, upsertCard, removeStaleCards } from "@/lib/db/sync";
+import { loadAllCards, updatePrices } from "@/lib/db/cards";
+import { bulkSearchTcgplayer, loadCatalogIndex } from "@/lib/data/scraper";
 import type { CardInput } from "@/lib/types";
 
 async function getUserEmail(): Promise<string> {
@@ -31,4 +33,24 @@ export async function removeStaleCardsAction(importedNames: string[]) {
   const removed = await removeStaleCards(importedNames, email);
   revalidatePath("/inventory");
   return removed;
+}
+
+export async function refreshPricesAction() {
+  const email = await getUserEmail();
+  const allCards = await loadAllCards(email);
+  const nonManual = allCards.filter((c) => !c.manual_price);
+  if (nonManual.length === 0) return 0;
+
+  const catalogIndex = await loadCatalogIndex();
+  const updates = await bulkSearchTcgplayer(
+    nonManual.map((c) => ({ id: c.id, name: c.name, number: c.number })),
+    catalogIndex
+  );
+
+  if (updates.length > 0) {
+    await updatePrices(updates);
+  }
+
+  revalidatePath("/inventory");
+  return updates.length;
 }

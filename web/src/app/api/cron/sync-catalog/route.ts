@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { syncAllGroups } from "@/lib/tcgcsv";
+import { syncAllGroups } from "@/lib/data/tcgcsv";
 
 export const maxDuration = 300;
 

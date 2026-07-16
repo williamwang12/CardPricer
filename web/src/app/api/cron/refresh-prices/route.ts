@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { bulkSearchTcgplayer, loadCatalogIndex } from "@/lib/scraper";
-import { updatePrices } from "@/lib/db/cards";
+import { bulkSearchTcgplayer, loadCatalogIndex } from "@/lib/data/scraper";
+import { loadAllCards, updatePrices } from "@/lib/db/cards";
 import { setLastRefreshed } from "@/lib/db/refresh-log";
+import { saveSnapshot } from "@/lib/db/collection-snapshots";
 import type { Card } from "@/lib/types";
 
 // Allow up to 5 minutes on Vercel Pro
@@ -44,6 +45,16 @@ export async function GET() {
     if (updates.length > 0) {
       await updatePrices(updates);
     }
+
+    // Save daily collection snapshot after prices are updated
+    const allCards = await loadAllCards(email);
+    const totalValue = allCards.reduce(
+      (sum, c) => sum + (c.market_price ?? 0) * c.quantity,
+      0
+    );
+    const cardCount = allCards.reduce((sum, c) => sum + c.quantity, 0);
+    const uniqueCount = allCards.length;
+    await saveSnapshot(email, totalValue, cardCount, uniqueCount);
 
     await setLastRefreshed(email);
   }

@@ -60,7 +60,7 @@ export default function EventsClient({ initialEvents, attendingEventIds }: Props
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Events</h1>
+        <h1 className="font-heading text-xl font-semibold">Events</h1>
       </div>
 
       {initialEvents.length === 0 ? (

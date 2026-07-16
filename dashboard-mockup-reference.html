@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CardParser — dashboard reference</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.1.0/tabler-icons.min.css" />
+<style>
+  :root {
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-voice: Georgia, "Times New Roman", serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --radius: 8px;
+    --surface-0: #f7f6f2; --surface-1: #efeee8; --surface-2: #ffffff;
+    --text-primary: #14130f; --text-secondary: #52514c; --text-muted: #8a8880;
+    --border: rgba(0,0,0,0.10);
+    --bg-success: #eaf3de; --text-success: #3b6d11;
+    --bg-accent: #e6f1fb; --text-accent: #185fa5;
+    --text-danger: #a32d2d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-0: #191817; --surface-1: #232220; --surface-2: #2b2a27;
+      --text-primary: #f4f2ec; --text-secondary: #c3c2b7; --text-muted: #8a8880;
+      --border: rgba(255,255,255,0.12);
+      --bg-success: #1e2b12; --text-success: #97c459;
+      --bg-accent: #10233a; --text-accent: #85b7eb;
+      --text-danger: #f09595;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary); font-family: var(--font-sans); line-height: 1.5; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 20px 60px; }
+  button { font-family: inherit; font-size: 14px; color: var(--text-primary); background: transparent; border: 0.5px solid var(--border); border-radius: var(--radius); padding: 8px 14px; cursor: pointer; }
+  button:hover { background: var(--surface-1); }
+  button.primary { background: var(--text-accent); color: #fff; border-color: transparent; }
+  .card1 { background: var(--surface-1); border-radius: 12px; }
+  .tnum { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:20px;">
+    <div>
+      <div style="font-size:18px; font-weight:500;">Your collection</div>
+      <div style="font-size:13px; color:var(--text-muted); margin-top:2px;"><i class="ti ti-clock" style="vertical-align:-2px; margin-right:4px;"></i>Last imported 2 hours ago · TCGplayer export</div>
+    </div>
+    <button class="primary" style="white-space:nowrap;"><i class="ti ti-upload" style="vertical-align:-2px; margin-right:6px;"></i>Import inventory</button>
+  </div>
+
+  <div class="card1" style="padding:20px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+    <div>
+      <div style="font-size:13px; color:var(--text-secondary);">Total collection value</div>
+      <div class="tnum" style="font-family:var(--font-voice); font-size:46px; line-height:1.1; margin-top:2px;">$48,920</div>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-top:8px; background:var(--bg-success); color:var(--text-success); font-size:13px; font-weight:500; padding:3px 10px; border-radius:var(--radius);"><i class="ti ti-trending-up"></i>+$1,510 · 3.2% since last import</div>
+    </div>
+    <div style="flex:1; min-width:220px; height:96px; position:relative;">
+      <canvas id="spark"></canvas>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:12px; margin-top:12px;">
+    <div class="card1" style="padding:16px;"><div style="font-size:13px; color:var(--text-secondary);">Cards tracked</div><div class="tnum" style="font-size:24px; font-weight:500; margin-top:4px;">1,284</div><div style="font-size:12px; color:var(--text-muted);">312 unique</div></div>
+    <div class="card1" style="padding:16px;"><div style="font-size:13px; color:var(--text-secondary);">Net movement</div><div class="tnum" style="font-size:24px; font-weight:500; margin-top:4px; color:var(--text-success);">+$1,510</div><div style="font-size:12px; color:var(--text-muted);">183 up · 96 down</div></div>
+    <div class="card1" style="padding:16px;"><div style="font-size:13px; color:var(--text-secondary);">Newcomers</div><div class="tnum" style="font-size:24px; font-weight:500; margin-top:4px;">47</div><div style="font-size:12px; color:var(--text-muted);">since last import</div></div>
+    <div class="card1" style="padding:16px;"><div style="font-size:13px; color:var(--text-secondary);">Removed</div><div class="tnum" style="font-size:24px; font-weight:500; margin-top:4px;">12</div><div style="font-size:12px; color:var(--text-muted);">sold or pulled</div></div>
+  </div>
+
+  <div style="display:flex; align-items:flex-end; justify-content:space-between; margin:28px 0 6px;">
+    <div><div style="font-size:16px; font-weight:500;">Collection vs benchmarks</div><div style="font-size:13px; color:var(--text-muted); margin-top:2px;">Growth since January · rebased to 100</div></div>
+    <div style="display:flex; gap:4px;">
+      <button style="padding:5px 10px; font-size:13px;">1M</button>
+      <button style="padding:5px 10px; font-size:13px; background:var(--surface-1);">6M</button>
+      <button style="padding:5px 10px; font-size:13px;">1Y</button>
+      <button style="padding:5px 10px; font-size:13px;">All</button>
+    </div>
+  </div>
+  <div id="legend" style="display:flex; flex-wrap:wrap; gap:18px; margin:12px 0 8px; font-size:13px; color:var(--text-secondary);"></div>
+  <div style="position:relative; width:100%; height:264px;"><canvas id="bench"></canvas></div>
+
+  <div style="font-size:16px; font-weight:500; margin:28px 0 12px;">Value by set</div>
+  <div id="sets" style="display:flex; flex-direction:column; gap:10px;"></div>
+
+  <div style="font-size:16px; font-weight:500; margin:28px 0 12px;">Biggest movers since last import</div>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px,1fr)); gap:12px;">
+    <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden;">
+      <div style="font-size:13px; color:var(--text-success); padding:10px 14px; border-bottom:0.5px solid var(--border);"><i class="ti ti-arrow-up-right" style="vertical-align:-2px; margin-right:6px;"></i>Gainers</div>
+      <div id="gainers"></div>
+    </div>
+    <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden;">
+      <div style="font-size:13px; color:var(--text-danger); padding:10px 14px; border-bottom:0.5px solid var(--border);"><i class="ti ti-arrow-down-right" style="vertical-align:-2px; margin-right:6px;"></i>Drops</div>
+      <div id="drops"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+(function(){
+  var isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  var cCol = isDark ? '#3987e5' : '#2a78d6';
+  var cPok = isDark ? '#d95926' : '#eb6834';
+  var cSp  = isDark ? '#b4b2a9' : '#888780';
+  var grid = isDark ? '#2c2c2a' : '#e1e0d9';
+  var tick = '#898781';
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul'];
+  var dollars = [41200,42800,44100,43600,45900,47400,48920];
+
+  new Chart(document.getElementById('spark'), {
+    type:'line',
+    data:{ labels:months, datasets:[{ data:dollars, borderColor:cCol, backgroundColor:'rgba(42,120,214,0.12)', borderWidth:2, fill:true, pointRadius:0, tension:0.35 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{enabled:false}}, scales:{x:{display:false},y:{display:false}} }
+  });
+
+  var col = [100,103.9,107.0,105.8,111.4,115.0,118.7];
+  var pok = [100,103.0,106.5,104.5,109.0,111.5,113.5];
+  var sp  = [100,101.2,102.8,101.5,103.6,104.4,106.2];
+  var lg = document.getElementById('legend');
+  function li(color,dashed,label,ret){
+    var l = '<span style="display:inline-block;width:20px;height:0;border-top:2px '+(dashed?'dashed':'solid')+' '+color+';vertical-align:middle;"></span>';
+    return '<span style="display:flex;align-items:center;gap:7px;">'+l+'<span style="color:var(--text-primary);">'+label+'</span><span class="tnum" style="color:var(--text-secondary);">'+ret+'</span></span>';
+  }
+  lg.innerHTML = li(cCol,false,'Your collection','+18.7%')+li(cPok,true,'Pokémon index','+13.5%')+li(cSp,true,'S&P 500','+6.2%');
+
+  new Chart(document.getElementById('bench'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'Your collection', data:col, borderColor:cCol, borderWidth:2.5, pointRadius:3, pointBackgroundColor:cCol, tension:0.35, order:1 },
+      { label:'Pokémon index', data:pok, borderColor:cPok, borderWidth:1.75, borderDash:[6,4], pointRadius:0, tension:0.35, order:2 },
+      { label:'S&P 500', data:sp, borderColor:cSp, borderWidth:1.75, borderDash:[2,3], pointRadius:0, tension:0.35, order:3 }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:function(c){ var v=c.parsed.y; return c.dataset.label+': '+v.toFixed(1)+'  ('+(v>=100?'+':'')+(v-100).toFixed(1)+'%)'; } } } },
+      scales:{ x:{ grid:{display:false}, ticks:{color:tick,font:{size:12}} }, y:{ min:97, max:122, grid:{color:grid}, ticks:{color:tick,font:{size:12},stepSize:5} } } }
+  });
+
+  var sets = [['Surging Sparks',9840],['Prismatic Evolutions',8760],['Pokémon 151',7320],['Evolving Skies',6450],['Obsidian Flames',4980],['Paldea Evolved',3610]];
+  var mx = 9840, sc = document.getElementById('sets');
+  sets.forEach(function(s){
+    var pct = Math.round((s[1]/mx)*100);
+    var d = document.createElement('div');
+    d.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:var(--text-secondary);">'+s[0]+'</span><span class="tnum">$'+s[1].toLocaleString()+'</span></div><div style="height:8px;background:var(--surface-1);border-radius:999px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:'+cCol+';border-radius:999px;"></div></div>';
+    sc.appendChild(d);
+  });
+
+  function row(name,set,from,to,pct,up){
+    var col = up ? 'var(--text-success)' : 'var(--text-danger)', sign = up ? '+' : '−';
+    return '<div style="padding:10px 14px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;"><div style="min-width:0;"><div style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+name+'</div><div style="font-size:12px;color:var(--text-muted);">'+set+'</div></div><div style="text-align:right;white-space:nowrap;"><div class="tnum" style="font-size:13px;color:var(--text-secondary);">$'+from+' → $'+to+'</div><div class="tnum" style="font-size:13px;font-weight:500;color:'+col+';">'+sign+pct+'%</div></div></div>';
+  }
+  document.getElementById('gainers').innerHTML = row('Umbreon VMAX (alt art)','Evolving Skies','412','468','13.6',true)+row('Charizard ex','Pokémon 151','88','99','12.5',true)+row('Pikachu ex','Surging Sparks','34','38','11.8',true);
+  document.getElementById('drops').innerHTML = row('Mewtwo ex','Pokémon 151','22','19','13.6',false)+row('Sylveon ex','Prismatic Evolutions','41','37','9.8',false)+row('Snorlax','Obsidian Flames','9.00','8.20','8.9',false);
+  ['gainers','drops'].forEach(function(id){ var e=document.getElementById(id); if(e.lastChild) e.lastChild.style.borderBottom='none'; });
+})();
+</script>
+</body>
+</html>

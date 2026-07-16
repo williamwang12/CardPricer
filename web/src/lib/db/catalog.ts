@@ -16,8 +16,12 @@ export interface CatalogCard {
   image_url: string | null;
 }
 
+export interface CatalogCardWithId extends CatalogCard {
+  product_id: number;
+}
+
 // Exclude non-mainline sets (promos, special products, etc.)
-const EXCLUDE_PATTERNS = [
+export const EXCLUDE_PATTERNS = [
   "%Promo%",
   "%McDonald%",
   "%Trick or Trade%",
@@ -72,6 +76,49 @@ export async function getSetCards(groupId: number): Promise<CatalogCard[]> {
     const num = row.number ?? "";
     const price = row.market_price != null ? Number(row.market_price) : null;
     const card: CatalogCard = { ...row, number: num, market_price: price };
+    const key = `${card.clean_name}||${card.number}`;
+    if (!seen.has(key)) {
+      seen.set(key, card);
+    }
+  }
+
+  const cards = Array.from(seen.values());
+  cards.sort((a, b) => {
+    const numA = parseInt(a.number ?? "", 10);
+    const numB = parseInt(b.number ?? "", 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return (a.number ?? "").localeCompare(b.number ?? "");
+  });
+
+  return cards;
+}
+
+export async function getSetCardsWithIds(
+  groupId: number
+): Promise<CatalogCardWithId[]> {
+  const PAGE = 1000;
+  const rows: CatalogCardWithId[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select("product_id, clean_name, number, market_price, url, image_url")
+      .eq("group_id", groupId)
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...(data as CatalogCardWithId[]));
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+
+  // Deduplicate by (clean_name, number), keeping first (Normal sub_type)
+  const seen = new Map<string, CatalogCardWithId>();
+  for (const row of rows) {
+    const num = row.number ?? "";
+    const price = row.market_price != null ? Number(row.market_price) : null;
+    const card: CatalogCardWithId = { ...row, number: num, market_price: price };
     const key = `${card.clean_name}||${card.number}`;
     if (!seen.has(key)) {
       seen.set(key, card);

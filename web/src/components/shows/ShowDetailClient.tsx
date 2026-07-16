@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { takeSnapshotAction, finalizeShowAction } from "@/actions/shows";
 import { diffShowSnapshots } from "@/lib/diff";
-import { useCurrency } from "@/lib/currency-context";
+import { useCurrency } from "@/components/currency-context";
 import type { Show, ShowSnapshot, ShowDiffResult } from "@/lib/types";
 
 interface Props {
@@ -128,7 +128,7 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
           </Button>
         </Link>
         <div className="flex flex-col gap-0.5">
-          <h1 className="text-xl font-semibold">{show.name}</h1>
+          <h1 className="font-heading text-xl font-semibold">{show.name}</h1>
           <p className="text-xs text-muted-foreground">
             {formatDate(show.date)}
             {show.date_end && ` – ${formatDate(show.date_end)}`}

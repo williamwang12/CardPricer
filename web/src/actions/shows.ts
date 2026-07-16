@@ -109,16 +109,19 @@ export interface StaleCardWithDetails {
   number: string;
   consecutive_shows: number;
   market_price: number | null;
+  cost_basis: number | null;
   quantity: number;
+  frozen_since: string | null;
 }
 
 export async function getDeadInventoryAction(
   threshold: number = 3
 ): Promise<StaleCardWithDetails[]> {
   const email = await getUserEmail();
-  const [staleRows, cards] = await Promise.all([
+  const [staleRows, cards, shows] = await Promise.all([
     getStaleCards(email, threshold),
     loadAllCards(email),
+    listShows(email),
   ]);
 
   // Build lookup from current inventory
@@ -126,17 +129,37 @@ export async function getDeadInventoryAction(
     cards.map((c) => [cardKey(c.name, c.number), c])
   );
 
+  // Finalized shows ordered oldest → newest for frozen_since calculation
+  const finalizedShows = shows
+    .filter((s) => s.finalized_at)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const showIndexById = new Map(finalizedShows.map((s, i) => [s.id, i]));
+
   const result: StaleCardWithDetails[] = [];
   for (const row of staleRows) {
     const card = cardLookup.get(row.card_key);
     if (!card) continue; // card no longer in inventory
+
+    // Determine when this card became frozen: walk back consecutive_shows
+    // from last_show_id in the ordered finalized shows list
+    let frozenSince: string | null = null;
+    if (row.last_show_id != null) {
+      const lastIdx = showIndexById.get(row.last_show_id);
+      if (lastIdx != null) {
+        const firstStaleIdx = Math.max(0, lastIdx - row.consecutive_shows + 1);
+        frozenSince = finalizedShows[firstStaleIdx].date;
+      }
+    }
+
     result.push({
       card_key: row.card_key,
       name: card.name,
       number: card.number,
       consecutive_shows: row.consecutive_shows,
       market_price: card.market_price,
+      cost_basis: card.cost_basis,
       quantity: card.quantity,
+      frozen_since: frozenSince,
     });
   }
 

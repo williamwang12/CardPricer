@@ -176,6 +176,16 @@ export interface EventListing {
   updated_at: string;
 }
 
+// ── Feature Suggestions ─────────────────────────────────────────────────────
+
+export interface FeatureSuggestion {
+  id: number;
+  user_email: string;
+  title: string;
+  description: string;
+  created_at: string;
+}
+
 export type OfferStatus = "pending" | "accepted" | "declined" | "withdrawn";
 
 export interface CardOffer {

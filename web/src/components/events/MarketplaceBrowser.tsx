@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { useCurrency } from "@/lib/currency-context";
+import { useCurrency } from "@/components/currency-context";
 import { makeOfferAction } from "@/actions/marketplace";
 import type { EventListing, ListedCard } from "@/lib/types";
 

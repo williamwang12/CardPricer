@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { searchTcgplayer } from "@/lib/scraper";
+import { searchTcgplayer } from "@/lib/data/scraper";
 
 export async function POST(req: NextRequest) {
   const session = await auth();

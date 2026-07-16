@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { loadAllCards } from "@/lib/db/cards";
-import { exportPriceList } from "@/lib/excel";
+import { exportPriceList } from "@/lib/export/excel";
 import { saveSnapshot, loadSnapshot } from "@/lib/db/label-snapshot";
 
 export async function GET() {

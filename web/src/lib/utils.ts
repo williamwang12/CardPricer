@@ -40,22 +40,6 @@ export function extractPokemonName(productName: string): string {
 }
 
 /**
- * Build a TCGPlayer search query from a card name.
- * Uses name only -- including the card number causes zero results for many sets.
- */
-export function searchQuery(name: string): string {
-  return name;
-}
-
-/**
- * Build a TCGPlayer search URL for a card.
- */
-export function searchUrl(name: string): string {
-  const query = encodeURIComponent(searchQuery(name));
-  return `https://www.tcgplayer.com/search/pokemon/product?q=${query}&productLineName=pokemon`;
-}
-
-/**
  * Format a number as a float string, handling Excel-style float numbers.
  * e.g. 107.0 -> "107"
  */

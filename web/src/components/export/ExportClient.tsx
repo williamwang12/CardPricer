@@ -4,8 +4,8 @@ import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { Download, Search, CheckSquare, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { LABEL_FORMATS } from "@/lib/label-formats";
-import { useCurrency } from "@/lib/currency-context";
+import { LABEL_FORMATS } from "@/lib/export/label-formats";
+import { useCurrency } from "@/components/currency-context";
 import type { Card } from "@/lib/types";
 import type { LabelSnapshot } from "@/lib/db/label-snapshot";
 
@@ -203,7 +203,7 @@ export default function ExportClient({ cards }: Props) {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-semibold">Export</h1>
+      <h1 className="font-heading text-xl font-semibold">Export</h1>
 
       {/* Card selector */}
       <div className="rounded-lg border">
@@ -296,7 +296,7 @@ export default function ExportClient({ cards }: Props) {
         {/* Inventory */}
         <div className="rounded-lg border p-6 flex flex-col gap-4">
           <div>
-            <h2 className="text-base font-semibold">Inventory</h2>
+            <h2 className="font-heading text-base font-semibold">Inventory</h2>
             <p className="text-sm text-muted-foreground mt-0.5">
               Cards with market price ≤ $1 are excluded.
             </p>
@@ -315,7 +315,7 @@ export default function ExportClient({ cards }: Props) {
         {/* Label Printer Price List */}
         <div className="rounded-lg border p-6 flex flex-col gap-4">
           <div>
-            <h2 className="text-base font-semibold">Label Printer Price List</h2>
+            <h2 className="font-heading text-base font-semibold">Label Printer Price List</h2>
             <p className="text-sm text-muted-foreground mt-0.5">
               One row per card per quantity, prices rounded up.
             </p>
@@ -337,7 +337,7 @@ export default function ExportClient({ cards }: Props) {
       {snapshot && (
         <div className="rounded-lg border p-6 flex flex-col gap-4">
           <div>
-            <h2 className="text-base font-semibold">Changes Since Last Download</h2>
+            <h2 className="font-heading text-base font-semibold">Changes Since Last Download</h2>
             <p className="text-sm text-muted-foreground mt-0.5">
               Last downloaded:{" "}
               {new Date(snapshot.downloaded_at).toLocaleString(undefined, {
@@ -362,8 +362,8 @@ export default function ExportClient({ cards }: Props) {
           </div>
 
           <p className="text-sm text-muted-foreground">
-            📦 <strong>{newcomers.length}</strong> newcomer(s) ·{" "}
-            📈 <strong>{priceMovers.length}</strong> price mover(s) (±${moverThreshold.toFixed(2)}+)
+            <strong>{newcomers.length}</strong> newcomer(s) ·{" "}
+            <strong>{priceMovers.length}</strong> price mover(s) (±${moverThreshold.toFixed(2)}+)
           </p>
 
           <div className="flex flex-wrap gap-3">
@@ -416,7 +416,7 @@ export default function ExportClient({ cards }: Props) {
       {/* Stickers */}
       <div className="rounded-lg border p-6 flex flex-col gap-4">
         <div>
-          <h2 className="text-base font-semibold">Price Stickers (PDF)</h2>
+          <h2 className="font-heading text-base font-semibold">Price Stickers (PDF)</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
             Printable price labels for cards with known prices.
           </p>

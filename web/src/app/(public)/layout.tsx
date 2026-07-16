@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import Nav from "@/components/nav";
-import { CurrencyProvider } from "@/lib/currency-context";
+import { CurrencyProvider } from "@/components/currency-context";
 import { isAdmin } from "@/lib/admin";
 
 export default async function PublicLayout({

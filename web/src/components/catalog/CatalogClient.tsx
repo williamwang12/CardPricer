@@ -5,7 +5,7 @@ import { Search, ChevronRight, ChevronDown, Loader2, ExternalLink, Plus, Check }
 import { toast } from "sonner";
 import { getAllSetsAction, getSetCardsAction } from "@/actions/catalog";
 import { addCardAction } from "@/actions/cards";
-import { useCurrency } from "@/lib/currency-context";
+import { useCurrency } from "@/components/currency-context";
 import type { CatalogSet, CatalogCard } from "@/lib/db/catalog";
 
 export default function CatalogClient() {
@@ -83,7 +83,7 @@ export default function CatalogClient() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-semibold">Catalog</h1>
+      <h1 className="font-heading text-xl font-semibold">Catalog</h1>
 
       {/* Search */}
       <div className="relative w-full sm:w-72">

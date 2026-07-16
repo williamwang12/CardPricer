@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logBuyAction, logSellAction } from "@/actions/transactions";
-import { useCurrency } from "@/lib/currency-context";
+import { useCurrency } from "@/components/currency-context";
 import type { Transaction } from "@/lib/types";
 
 interface Props {
@@ -111,11 +111,11 @@ export default function TransactionClient({ initialTransactions, cardNames }: Pr
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-semibold">Transactions</h1>
+      <h1 className="font-heading text-xl font-semibold">Transactions</h1>
 
       {/* Log form */}
       <div className="rounded-lg border p-6 max-w-md">
-        <h2 className="text-base font-semibold mb-4">Log Transaction</h2>
+        <h2 className="font-heading text-base font-semibold mb-4">Log Transaction</h2>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {/* Buy / Sell toggle */}
           <div className="flex rounded-md border overflow-hidden w-fit">
@@ -217,7 +217,7 @@ export default function TransactionClient({ initialTransactions, cardNames }: Pr
 
       {/* History */}
       <div className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold">History</h2>
+        <h2 className="font-heading text-base font-semibold">History</h2>
         {transactions.length === 0 ? (
           <p className="text-sm text-muted-foreground">No transactions yet.</p>
         ) : (

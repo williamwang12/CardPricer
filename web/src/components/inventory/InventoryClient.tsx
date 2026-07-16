@@ -13,7 +13,7 @@ import {
   saveCostBasisAction,
   deleteAllAction,
 } from "@/actions/cards";
-import { useCurrency } from "@/lib/currency-context";
+import { useCurrency } from "@/components/currency-context";
 import type { Card, PriceMover } from "@/lib/types";
 
 interface Props {
@@ -302,8 +302,8 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
       <div className="flex flex-col gap-2">
         {/* Title + stats */}
         <div>
-          <h1 className="text-xl font-semibold">Inventory</h1>
-          <p className="text-sm text-muted-foreground flex flex-wrap gap-x-2">
+          <h1 className="font-heading text-xl font-semibold">Inventory</h1>
+          <p className="text-sm text-muted-foreground flex flex-wrap items-baseline gap-x-2">
             <span>{cards.length} cards · {pricedCount} priced</span>
             <span className="font-medium text-foreground">Total: {fmt(totalValue)}</span>
             {hasCostData && (
@@ -315,7 +315,7 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
               </>
             )}
             {lastRefreshed && (
-              <span className="text-xs">
+              <span>
                 · Prices refreshed{" "}
                 {(() => {
                   const diff = Date.now() - new Date(lastRefreshed).getTime();
@@ -328,7 +328,7 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
               </span>
             )}
             {!lastRefreshed && (
-              <span className="text-xs">· Prices refresh daily</span>
+              <span>· Prices refresh daily</span>
             )}
           </p>
         </div>
@@ -372,24 +372,19 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
         </div>
       )}
 
-      {/* Beta reset notice */}
-      {cards.length === 0 && (
-        <div className="rounded-md border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
-          We recently adjusted our database indexes and had to reset all card data. Please re-import your collection — sorry for the inconvenience!
-        </div>
-      )}
-
       {/* Table */}
       {cards.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-muted-foreground gap-2">
-          <p className="text-lg">No cards yet</p>
-          <p className="text-sm">
-            Go to{" "}
-            <a href="/add" className="underline">
-              Add Cards
-            </a>{" "}
-            to import your collection.
+        <div className="flex flex-col items-center justify-center py-24 gap-3">
+          <p className="font-heading text-lg font-semibold text-foreground">No cards yet</p>
+          <p className="text-sm text-muted-foreground">
+            Import a CSV from Collectr, TCGPlayer, or DeckTradr to get started.
           </p>
+          <a
+            href="/add"
+            className="mt-1 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Add Cards
+          </a>
         </div>
       ) : (
         <>
@@ -491,7 +486,7 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
                       href={card.tcgplayer_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800"
+                      className="text-primary hover:text-primary/80"
                       title="View on TCGPlayer"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
@@ -653,7 +648,7 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
                           href={card.tcgplayer_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800"
+                          className="text-primary hover:text-primary/80"
                           title="View on TCGPlayer"
                         >
                           <ExternalLink className="h-3.5 w-3.5 inline" />
@@ -703,7 +698,7 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
       {movers.length > 0 && (
         <div className="flex flex-col gap-3 mt-2">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-base font-semibold">
+            <h2 className="font-heading text-base font-semibold">
               Price Alerts ({movers.length} cards moved)
             </h2>
             <button
