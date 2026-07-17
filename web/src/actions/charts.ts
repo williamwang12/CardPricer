@@ -25,10 +25,9 @@ export async function getSetCardsAction(
 
 export async function getCardHistoryAction(
   productId: number,
-  subTypeName: string = "Normal",
   days?: number
 ): Promise<PriceHistoryPoint[]> {
-  return loadCardPriceHistory(productId, subTypeName, days);
+  return loadCardPriceHistory(productId, days);
 }
 
 export async function getSetHistoryAction(

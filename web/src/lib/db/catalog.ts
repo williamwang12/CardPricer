@@ -8,9 +8,13 @@ export interface CatalogSet {
   group_id: number;
   group_name: string;
   card_count: number;
+  logo_url: string | null;
+  symbol_url: string | null;
+  release_date: string | null;
 }
 
 export interface CatalogCard {
+  product_id: number;
   clean_name: string;
   number: string | null;
   market_price: number | null;
@@ -20,6 +24,24 @@ export interface CatalogCard {
 
 export interface CatalogCardWithId extends CatalogCard {
   product_id: number;
+}
+
+export interface CatalogCardSearchResult extends CatalogCard {
+  group_id: number;
+  group_name: string;
+}
+
+export interface CatalogMover {
+  product_id: number;
+  clean_name: string;
+  number: string | null;
+  group_name: string;
+  group_id: number;
+  image_url: string | null;
+  url: string | null;
+  oldPrice: number;
+  newPrice: number;
+  deltaPct: number;
 }
 
 // Exclude non-mainline sets (promos, special products, etc.)
@@ -110,9 +132,258 @@ export async function getAllSets(): Promise<CatalogSet[]> {
     p.replaceAll("%", "").toLowerCase()
   );
 
-  return (data as CatalogSet[]).filter(
-    (s) => !exclude.some((kw) => s.group_name.toLowerCase().includes(kw))
-  );
+  const sets = (
+    data as Omit<CatalogSet, "logo_url" | "symbol_url" | "release_date">[]
+  ).filter((s) => !exclude.some((kw) => s.group_name.toLowerCase().includes(kw)));
+
+  const { data: logos } = await supabase
+    .from("set_logos")
+    .select("group_id, logo_url, symbol_url, release_date");
+  const logoMap = new Map((logos ?? []).map((l) => [l.group_id, l]));
+
+  const merged = sets.map((s) => ({
+    ...s,
+    logo_url: logoMap.get(s.group_id)?.logo_url ?? null,
+    symbol_url: logoMap.get(s.group_id)?.symbol_url ?? null,
+    release_date: logoMap.get(s.group_id)?.release_date ?? null,
+  }));
+
+  // Most recently released sets first; sets without a known release date
+  // (no logo match yet) sort to the end.
+  merged.sort((a, b) => {
+    if (a.release_date && b.release_date) {
+      return b.release_date.localeCompare(a.release_date);
+    }
+    if (a.release_date) return -1;
+    if (b.release_date) return 1;
+    return a.group_name.localeCompare(b.group_name);
+  });
+
+  return merged;
+}
+
+// Search cards by name across the entire catalog (all sets), used by the
+// Catalog page's "Cards" tab. Matches are ordered by market price (desc) so
+// the most notable/valuable printings surface first, and are capped at
+// `limit` rows since a broad query (e.g. "Pikachu") can match thousands.
+// Card numbers are stored like "006/165" — parses out the leading numeral so
+// "6", "06", and "006" all match the same card regardless of how it's
+// zero-padded or how many total cards are in the set.
+function parseCardNumberPrefix(numStr: string): number | null {
+  const m = numStr.match(/^0*(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+export async function searchCards(
+  query: string,
+  limit = 60,
+  groupId?: number,
+  cardNumber?: string
+): Promise<CatalogCardSearchResult[]> {
+  // clean_name is sourced from TCGPlayer's own "clean name", which never
+  // contains apostrophes (e.g. "Misty's Psyduck" is stored as "Mistys
+  // Psyduck"). Strip straight/curly apostrophes from the search query so
+  // searching either form still matches.
+  const q = query.trim().replace(/['\u2018\u2019]/g, "");
+  if (!q) return [];
+
+  let builder = supabase
+    .from(TABLE)
+    .select("group_id, group_name, product_id, clean_name, number, market_price, url, image_url")
+    .ilike("clean_name", `%${q}%`);
+
+  // Narrow to a specific set when the caller has already parsed a set name
+  // out of the query (e.g. "Charizard 151" -> name "Charizard" + the
+  // "Scarlet & Violet 151" set), so results aren't diluted by same-named
+  // cards from other sets.
+  if (groupId != null) {
+    builder = builder.eq("group_id", groupId);
+  }
+
+  for (const pattern of EXCLUDE_PATTERNS) {
+    builder = builder.not("group_name", "ilike", pattern);
+  }
+
+  const { data, error } = await builder
+    .order("market_price", { ascending: false, nullsFirst: false })
+    .limit(limit * 3); // over-fetch to allow for dedupe below
+  if (error) throw error;
+
+  // Deduplicate by (group_id, clean_name, number) to collapse sub_type
+  // variants (Normal / Holofoil / Reverse Holofoil, etc.)
+  const seen = new Map<string, CatalogCardSearchResult>();
+  for (const row of data ?? []) {
+    const num = row.number ?? "";
+    const price = row.market_price != null ? Number(row.market_price) : null;
+    const card: CatalogCardSearchResult = { ...row, number: num, market_price: price };
+    const key = `${card.group_id}||${card.clean_name}||${card.number}`;
+    if (!seen.has(key)) {
+      seen.set(key, card);
+    }
+  }
+
+  let results = Array.from(seen.values());
+
+  // Filter by parsed card number (e.g. "Charizard 6" -> only cards whose
+  // number is "6/xxx", "006/xxx", etc. — compares the numeral itself so
+  // zero-padding differences don't matter).
+  if (cardNumber) {
+    const target = parseCardNumberPrefix(cardNumber);
+    if (target != null) {
+      results = results.filter(
+        (c) => c.number != null && parseCardNumberPrefix(c.number) === target
+      );
+    }
+  }
+
+  return results.slice(0, limit);
+}
+
+// Today's biggest catalog-wide gainers/drops, computed from `card_price_history`
+// (populated daily for modern mainline sets by the sync-catalog cron). Compares
+// the two most recent capture dates; returns empty arrays if fewer than two
+// dates of history exist yet.
+export async function getCatalogTopMovers(
+  limit = 8
+): Promise<{ gainers: CatalogMover[]; drops: CatalogMover[] }> {
+  const empty = { gainers: [], drops: [] };
+
+  const { data: latestRow, error: latestErr } = await supabase
+    .from("card_price_history")
+    .select("captured_at")
+    .order("captured_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestErr) throw latestErr;
+  if (!latestRow) return empty;
+  const latestDate = latestRow.captured_at as string;
+
+  const { data: prevRow, error: prevErr } = await supabase
+    .from("card_price_history")
+    .select("captured_at")
+    .lt("captured_at", latestDate)
+    .order("captured_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (prevErr) throw prevErr;
+  if (!prevRow) return empty;
+  const prevDate = prevRow.captured_at as string;
+
+  const PAGE = 1000;
+  async function loadPrices(date: string): Promise<Map<number, number>> {
+    const map = new Map<number, number>();
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("card_price_history")
+        .select("product_id, market_price")
+        .eq("captured_at", date)
+        .eq("sub_type_name", "Normal")
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      for (const row of data) {
+        if (row.market_price != null) {
+          map.set(row.product_id, Number(row.market_price));
+        }
+      }
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return map;
+  }
+
+  const [latestPrices, prevPrices] = await Promise.all([
+    loadPrices(latestDate),
+    loadPrices(prevDate),
+  ]);
+
+  type Delta = { product_id: number; oldPrice: number; newPrice: number; deltaPct: number };
+  const deltas: Delta[] = [];
+  for (const [productId, newPrice] of latestPrices) {
+    const oldPrice = prevPrices.get(productId);
+    if (oldPrice == null || oldPrice <= 0) continue;
+    const diff = newPrice - oldPrice;
+    if (Math.abs(diff) < 0.01) continue;
+    deltas.push({
+      product_id: productId,
+      oldPrice,
+      newPrice,
+      deltaPct: (diff / oldPrice) * 100,
+    });
+  }
+
+  deltas.sort((a, b) => b.deltaPct - a.deltaPct);
+  const gainerDeltas = deltas.filter((d) => d.deltaPct > 0).slice(0, limit);
+  const dropDeltas = deltas
+    .filter((d) => d.deltaPct < 0)
+    .slice(-limit)
+    .reverse();
+
+  const ids = [...gainerDeltas, ...dropDeltas].map((d) => d.product_id);
+  if (ids.length === 0) return empty;
+
+  const { data: meta, error: metaErr } = await supabase
+    .from(TABLE)
+    .select("product_id, clean_name, number, group_id, group_name, image_url, url")
+    .in("product_id", ids)
+    .eq("sub_type_name", "Normal");
+  if (metaErr) throw metaErr;
+
+  const exclude = EXCLUDE_PATTERNS.map((p) => p.replaceAll("%", "").toLowerCase());
+  const metaMap = new Map((meta ?? []).map((m) => [m.product_id, m]));
+
+  function toMovers(list: Delta[]): CatalogMover[] {
+    const result: CatalogMover[] = [];
+    for (const d of list) {
+      const m = metaMap.get(d.product_id);
+      if (!m) continue;
+      if (exclude.some((kw) => m.group_name.toLowerCase().includes(kw))) continue;
+      result.push({
+        product_id: d.product_id,
+        clean_name: m.clean_name,
+        number: m.number,
+        group_id: m.group_id,
+        group_name: m.group_name,
+        image_url: m.image_url,
+        url: m.url,
+        oldPrice: d.oldPrice,
+        newPrice: d.newPrice,
+        deltaPct: d.deltaPct,
+      });
+    }
+    return result;
+  }
+
+  return {
+    gainers: toMovers(gainerDeltas),
+    drops: toMovers(dropDeltas),
+  };
+}
+
+// Cache tag for the top-movers computation. This is a global (non-per-user)
+// tag since movers are catalog-wide, not scoped to a user's inventory. The
+// sync-catalog cron calls `revalidateTag(catalogMoversTag())` right after it
+// finishes writing a new day's `card_price_history` rows, so the cache is
+// busted exactly when new data actually lands. The `revalidate: 3600` is
+// just a safety net (movers only ever change once/day) in case that call is
+// ever missed.
+export function catalogMoversTag(): string {
+  return "catalog:movers";
+}
+
+// Cached wrapper for the Catalog page's "Today's Top Movers" section — the
+// underlying computation pages through the full card_price_history table for
+// two dates, so without caching every navigation back to the Cards tab would
+// re-run that full scan.
+export async function getCatalogTopMoversCached(
+  limit = 8
+): Promise<{ gainers: CatalogMover[]; drops: CatalogMover[] }> {
+  return unstable_cache(
+    () => getCatalogTopMovers(limit),
+    ["catalog-top-movers", String(limit)],
+    { tags: [catalogMoversTag()], revalidate: 3600 }
+  )();
 }
 
 export async function getSetCards(groupId: number): Promise<CatalogCard[]> {
@@ -123,7 +394,7 @@ export async function getSetCards(groupId: number): Promise<CatalogCard[]> {
   while (true) {
     const { data, error } = await supabase
       .from(TABLE)
-      .select("clean_name, number, market_price, url, image_url")
+      .select("product_id, clean_name, number, market_price, url, image_url")
       .eq("group_id", groupId)
       .range(from, from + PAGE - 1);
     if (error) throw error;

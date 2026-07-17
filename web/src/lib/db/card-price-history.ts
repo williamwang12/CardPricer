@@ -8,14 +8,20 @@ export interface PriceHistoryPoint {
 
 export async function loadCardPriceHistory(
   productId: number,
-  subTypeName: string = "Normal",
   days?: number
 ): Promise<PriceHistoryPoint[]> {
+  // A single product_id can have more than one sub_type_name row (e.g. a
+  // "Normal" print and a "Reverse Holofoil" print sharing the same
+  // product_id, each with its own price) — the catalog/search/movers
+  // queries elsewhere in the app always surface the higher-priced variant
+  // for a given card, so do the same here per date instead of hardcoding a
+  // "Normal" filter, which silently returned zero rows for any card whose
+  // priced variant happened to be Holofoil/Reverse Holofoil (the majority
+  // of modern cards).
   let query = supabase
     .from("card_price_history")
     .select("captured_at, market_price, low_price")
     .eq("product_id", productId)
-    .eq("sub_type_name", subTypeName)
     .order("captured_at", { ascending: true });
 
   if (days) {
@@ -26,7 +32,18 @@ export async function loadCardPriceHistory(
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as PriceHistoryPoint[];
+
+  const byDate = new Map<string, PriceHistoryPoint>();
+  for (const row of (data ?? []) as PriceHistoryPoint[]) {
+    const existing = byDate.get(row.captured_at);
+    if (!existing || row.market_price > existing.market_price) {
+      byDate.set(row.captured_at, row);
+    }
+  }
+
+  return Array.from(byDate.values()).sort((a, b) =>
+    a.captured_at.localeCompare(b.captured_at)
+  );
 }
 
 export interface SetPriceHistoryPoint {
