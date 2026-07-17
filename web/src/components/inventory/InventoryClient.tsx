@@ -2,10 +2,16 @@
 
 import { useState, useCallback, useTransition, useEffect } from "react";
 import { toast } from "sonner";
-import { ExternalLink, Trash2, RefreshCw, X, Download } from "lucide-react";
+import {
+  ExternalLink,
+  Trash2,
+  X,
+  LayoutGrid,
+  Rows3,
+  ImageOff,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Progress } from "@/components/ui/progress";
 import {
   updateCardAction,
   deleteCardsAction,
@@ -14,11 +20,17 @@ import {
   deleteAllAction,
 } from "@/actions/cards";
 import { useCurrency } from "@/components/currency-context";
-import type { Card, PriceMover } from "@/lib/types";
+import type { Card } from "@/lib/types";
+
+interface CardImageInfo {
+  image_url: string | null;
+  setName: string;
+}
 
 interface Props {
   initialCards: Card[];
   lastRefreshed: string | null;
+  cardImages: Record<number, CardImageInfo>;
 }
 
 function EditableCell({
@@ -73,15 +85,15 @@ function EditableCell({
   );
 }
 
-export default function InventoryClient({ initialCards, lastRefreshed }: Props) {
-  const { fmt, currency, rate } = useCurrency();
+export default function InventoryClient({
+  initialCards,
+  lastRefreshed,
+  cardImages,
+}: Props) {
+  const { fmt } = useCurrency();
   const [cards, setCards] = useState<Card[]>(initialCards);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshProgress, setRefreshProgress] = useState(0);
-  const [refreshStatus, setRefreshStatus] = useState("");
-  const [movers, setMovers] = useState<PriceMover[]>([]);
-  const [moversMinPrice, setMoversMinPrice] = useState(0);
+  const [view, setView] = useState<"table" | "grid">("table");
   const [, startTransition] = useTransition();
 
   // Keep cards in sync when server re-renders pass new initialCards
@@ -197,92 +209,6 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
     }
   }, []);
 
-  // ── Price refresh ──────────────────────────────────────────────────────────
-  const handleRefreshPrices = useCallback(
-    async (all = false) => {
-      const toRefresh = cards.filter(
-        (c) => (all || c.market_price == null) && !c.manual_price
-      );
-      if (!toRefresh.length) {
-        toast.info("No cards to refresh");
-        return;
-      }
-      setRefreshing(true);
-      setRefreshProgress(0);
-      setMovers([]);
-
-      // Snapshot old prices before refresh
-      const oldPrices = new Map<number, number | null>(
-        toRefresh.map((c) => [c.id, c.market_price])
-      );
-
-      let updated = 0;
-      const newPriceMap = new Map<number, number | null>();
-
-      for (let i = 0; i < toRefresh.length; i++) {
-        const card = toRefresh[i];
-        setRefreshStatus(`${card.name} (${i + 1}/${toRefresh.length})`);
-        try {
-          const res = await fetch("/api/scraper", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: card.name, number: card.number }),
-          });
-          if (res.ok) {
-            const data = (await res.json()) as {
-              price: number | null;
-              url: string | null;
-            };
-            if (data.price != null || data.url != null) {
-              newPriceMap.set(card.id, data.price);
-              setCards((prev) =>
-                prev.map((c) =>
-                  c.id === card.id
-                    ? { ...c, market_price: data.price, tcgplayer_url: data.url }
-                    : c
-                )
-              );
-              await savePriceAction(card.id, data.price, data.url);
-              updated++;
-            }
-          }
-        } catch {
-          // continue on individual failure
-        }
-        setRefreshProgress(((i + 1) / toRefresh.length) * 100);
-      }
-
-      // Compute price movers (only for "Refresh All")
-      if (all) {
-        const computed: PriceMover[] = [];
-        for (const card of toRefresh) {
-          const oldPrice = oldPrices.get(card.id) ?? null;
-          const newPrice = newPriceMap.get(card.id) ?? null;
-          if (oldPrice != null && newPrice != null) {
-            const change = Math.round((newPrice - oldPrice) * 100) / 100;
-            if (Math.abs(change) >= 0.01) {
-              computed.push({
-                name: card.name,
-                number: card.number,
-                oldPrice,
-                newPrice,
-                change,
-              });
-            }
-          }
-        }
-        // Sort by absolute change descending
-        computed.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
-        setMovers(computed);
-      }
-
-      setRefreshing(false);
-      setRefreshStatus("");
-      toast.success(`Updated ${updated} price(s)`);
-    },
-    [cards]
-  );
-
   // ── Delete all ─────────────────────────────────────────────────────────────
   const handleDeleteAll = async () => {
     if (!confirm("Delete ALL cards? This cannot be undone.")) return;
@@ -334,6 +260,32 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
         </div>
         {/* Action buttons */}
         <div className="flex flex-wrap gap-2">
+          <div className="flex rounded-lg border p-0.5">
+            <button
+              onClick={() => setView("table")}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors ${
+                view === "table"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              title="Table view"
+            >
+              <Rows3 className="h-4 w-4" />
+              <span className="hidden sm:inline">Table</span>
+            </button>
+            <button
+              onClick={() => setView("grid")}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors ${
+                view === "grid"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              title="Card view"
+            >
+              <LayoutGrid className="h-4 w-4" />
+              <span className="hidden sm:inline">Cards</span>
+            </button>
+          </div>
           {selected.size > 0 && (
             <Button
               variant="destructive"
@@ -345,15 +297,6 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
             </Button>
           )}
           <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleRefreshPrices(false)}
-            disabled={refreshing}
-          >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh Missing
-          </Button>
-          <Button
             variant="ghost"
             size="sm"
             onClick={handleDeleteAll}
@@ -364,14 +307,6 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
         </div>
       </div>
 
-      {/* Progress bar */}
-      {refreshing && (
-        <div className="flex flex-col gap-1">
-          <Progress value={refreshProgress} className="h-2" />
-          <p className="text-xs text-muted-foreground">{refreshStatus}</p>
-        </div>
-      )}
-
       {/* Table */}
       {cards.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 gap-3">
@@ -380,11 +315,83 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
             Import a CSV from Collectr, TCGPlayer, or DeckTradr to get started.
           </p>
           <a
-            href="/add"
+            href="/import"
             className="mt-1 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Add Cards
+            Import cards
           </a>
+        </div>
+      ) : view === "grid" ? (
+        <div
+          className="grid gap-4"
+          style={{
+            gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+          }}
+        >
+          {cards.map((card) => {
+            const info = cardImages[card.id];
+            const totalCardValue =
+              card.market_price != null ? card.market_price * card.quantity : null;
+            return (
+              <div
+                key={card.id}
+                className="group relative flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg"
+              >
+                <div className="relative aspect-[63/88] w-full overflow-hidden bg-muted">
+                  {info?.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={info.image_url}
+                      alt={card.name}
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-muted to-muted/50 p-3 text-center">
+                      <ImageOff className="h-6 w-6 text-muted-foreground/50" />
+                      <span className="text-[11px] leading-tight text-muted-foreground/70">
+                        Not synced yet
+                      </span>
+                    </div>
+                  )}
+                  {card.quantity > 1 && (
+                    <span className="absolute right-1.5 top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                      ×{card.quantity}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => handleDeleteOne(card)}
+                    className="absolute left-1.5 top-1.5 rounded-full bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-destructive group-hover:opacity-100"
+                    title="Delete"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="flex flex-1 flex-col gap-0.5 p-2">
+                  <p
+                    className="line-clamp-2 text-xs font-medium leading-snug"
+                    title={card.name}
+                  >
+                    {card.name}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {info?.setName ?? "Unsynced"}
+                    {card.number ? ` · #${card.number}` : ""}
+                  </p>
+                  <div className="mt-auto flex items-baseline justify-between pt-1">
+                    <span className="font-mono text-sm font-semibold">
+                      {card.market_price != null ? fmt(card.market_price) : "—"}
+                    </span>
+                    {totalCardValue != null && card.quantity > 1 && (
+                      <span className="text-[11px] font-mono text-muted-foreground">
+                        {fmt(totalCardValue)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <>
@@ -692,133 +699,6 @@ export default function InventoryClient({ initialCards, lastRefreshed }: Props) 
             </table>
           </div>
         </>
-      )}
-
-      {/* Price Movers */}
-      {movers.length > 0 && (
-        <div className="flex flex-col gap-3 mt-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="font-heading text-base font-semibold">
-              Price Alerts ({movers.length} cards moved)
-            </h2>
-            <button
-              onClick={() => setMovers([])}
-              className="text-xs text-muted-foreground hover:text-foreground ml-auto"
-            >
-              Dismiss
-            </button>
-          </div>
-
-          {/* Mobile movers cards */}
-          <div className="sm:hidden rounded-lg border divide-y">
-            {movers.map((m, i) => (
-              <div
-                key={i}
-                className={`px-3 py-2.5 flex items-center justify-between gap-3 ${
-                  m.change > 0 ? "bg-green-50" : "bg-red-50"
-                }`}
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{m.name}</p>
-                  {m.number && (
-                    <p className="text-xs text-muted-foreground">#{m.number}</p>
-                  )}
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p
-                    className={`font-mono font-semibold text-sm ${
-                      m.change > 0 ? "text-green-700" : "text-red-700"
-                    }`}
-                  >
-                    {m.change > 0 ? "+" : ""}
-                    {fmt(m.change)}
-                  </p>
-                  <p className="text-xs text-muted-foreground font-mono">
-                    {fmt(m.oldPrice)} → {fmt(m.newPrice)}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Desktop movers table */}
-          <div className="hidden sm:block rounded-lg border overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="h-9 px-3 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="h-9 px-3 text-left font-medium text-muted-foreground w-28">Number</th>
-                  <th className="h-9 px-3 text-right font-medium text-muted-foreground w-24">Old Price</th>
-                  <th className="h-9 px-3 text-right font-medium text-muted-foreground w-24">New Price</th>
-                  <th className="h-9 px-3 text-right font-medium text-muted-foreground w-24">Change</th>
-                </tr>
-              </thead>
-              <tbody>
-                {movers.map((m, i) => (
-                  <tr
-                    key={i}
-                    className={`border-b last:border-0 ${
-                      m.change > 0 ? "bg-green-50" : "bg-red-50"
-                    }`}
-                  >
-                    <td className="px-3 py-1.5">{m.name}</td>
-                    <td className="px-3 py-1.5 text-muted-foreground">{m.number || "—"}</td>
-                    <td className="px-3 py-1.5 text-right font-mono">{fmt(m.oldPrice)}</td>
-                    <td className="px-3 py-1.5 text-right font-mono">{fmt(m.newPrice)}</td>
-                    <td
-                      className={`px-3 py-1.5 text-right font-mono font-semibold ${
-                        m.change > 0 ? "text-green-700" : "text-red-700"
-                      }`}
-                    >
-                      {m.change > 0 ? "+" : ""}
-                      {fmt(m.change)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm">
-              Min price ($):
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={moversMinPrice}
-                onChange={(e) => setMoversMinPrice(Math.max(0, Number(e.target.value)))}
-                className="w-20 h-8 rounded-md border border-input px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </label>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                try {
-                  const res = await fetch("/api/export/movers", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ movers, minPrice: moversMinPrice, currency, rate }),
-                  });
-                  if (!res.ok) throw new Error();
-                  const blob = await res.blob();
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = "price_movers.xlsx";
-                  a.click();
-                  URL.revokeObjectURL(url);
-                } catch {
-                  toast.error("Export failed");
-                }
-              }}
-            >
-              <Download className="h-4 w-4" />
-              Download price_movers.xlsx
-            </Button>
-          </div>
-        </div>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
-import AddCardsClient from "@/components/add-cards/AddCardsClient";
+import { redirect } from "next/navigation";
 
-export default function AddCardsPage() {
-  return <AddCardsClient />;
+export default function AddCardsRedirect() {
+  redirect("/import");
 }

@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getTransactions } from "@/lib/db/transactions";
-import { loadAllCards } from "@/lib/db/cards";
+import { loadAllCardsCached } from "@/lib/db/cards";
 import TransactionClient from "@/components/transactions/TransactionClient";
 
 export default async function TransactionsPage() {
@@ -11,7 +11,7 @@ export default async function TransactionsPage() {
 
   const [transactions, cards] = await Promise.all([
     getTransactions(email, 100),
-    loadAllCards(email),
+    loadAllCardsCached(email),
   ]);
 
   return (

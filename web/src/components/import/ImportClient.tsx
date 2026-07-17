@@ -2,7 +2,14 @@
 
 import { useState, useRef, useEffect, useTransition, useCallback } from "react";
 import { toast } from "sonner";
-import { Upload, Plus, RotateCcw } from "lucide-react";
+import {
+  Upload,
+  Plus,
+  RotateCcw,
+  PenLine,
+  FileSpreadsheet,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -24,11 +31,41 @@ import type { CardInput } from "@/lib/types";
 
 type Tab = "manual" | "tcgplayer" | "decktradr" | "collectr";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "manual", label: "Manual" },
-  { id: "tcgplayer", label: "TCGPlayer CSV" },
-  { id: "decktradr", label: "DeckTradr CSV" },
-  { id: "collectr", label: "Collectr CSV" },
+const TABS: {
+  id: Tab;
+  label: string;
+  icon: typeof Plus;
+  method: string;
+  behavior: string;
+}[] = [
+  {
+    id: "manual",
+    label: "Manual",
+    icon: PenLine,
+    method: "Add a single card by searching the catalog.",
+    behavior: "Adds one card at a time — nothing else is changed.",
+  },
+  {
+    id: "tcgplayer",
+    label: "TCGPlayer CSV",
+    icon: FileSpreadsheet,
+    method: "Upload a TCGPlayer collection export.",
+    behavior: "Adds every row to your inventory. Existing cards are untouched, and you can roll back the whole import with one click.",
+  },
+  {
+    id: "decktradr",
+    label: "DeckTradr CSV",
+    icon: FileSpreadsheet,
+    method: "Upload a DeckTradr export.",
+    behavior: "Adds every row to your inventory. Existing cards are untouched, and you can roll back the whole import with one click.",
+  },
+  {
+    id: "collectr",
+    label: "Collectr CSV",
+    icon: RefreshCw,
+    method: "Upload a Collectr export to fully sync.",
+    behavior: "Matches cards by name + number: updates quantities, adds new cards, and (unless \u201cAdd only\u201d is checked) removes cards missing from the file. Prices refresh automatically afterward.",
+  },
 ];
 
 function readFile(file: File): Promise<string> {
@@ -446,11 +483,27 @@ function CollectrTab() {
       }
     }
 
-    setProgressLabel("Refreshing prices…");
+    // Refreshing prices can take several seconds with no incremental
+    // progress to report, so cycle reassuring status messages to signal
+    // the sync is still running rather than appearing to hang.
+    const refreshMessages = [
+      "Refreshing prices…",
+      "Still refreshing prices…",
+      "Fetching latest market data…",
+      "Almost there…",
+    ];
+    let refreshMsgIndex = 0;
+    setProgressLabel(refreshMessages[0]);
+    const refreshInterval = setInterval(() => {
+      refreshMsgIndex = (refreshMsgIndex + 1) % refreshMessages.length;
+      setProgressLabel(refreshMessages[refreshMsgIndex]);
+    }, 2500);
     try {
       await refreshPricesAction();
     } catch {
       // continue
+    } finally {
+      clearInterval(refreshInterval);
     }
 
     setSyncing(false);
@@ -560,28 +613,60 @@ function CollectrTab() {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function AddCardsClient() {
+export default function ImportClient() {
   const [activeTab, setActiveTab] = useState<Tab>("manual");
+  const active = TABS.find((t) => t.id === activeTab)!;
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="font-heading text-xl font-semibold">Add Cards</h1>
+      {/* Header */}
+      <div>
+        <h1 className="font-heading text-xl font-semibold">Import</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Add cards one at a time, or bulk-import from a marketplace export.
+        </p>
+      </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b overflow-x-auto scrollbar-none">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
-              activeTab === tab.id
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* How updating works */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "text-left rounded-xl border p-4 flex flex-col gap-2 transition-colors",
+                isActive
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted"
+              )}
+            >
+              <div
+                className={cn(
+                  "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
+                  isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </div>
+              <p className="text-sm font-semibold">{tab.label}</p>
+              <p className="text-xs text-muted-foreground">{tab.method}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* How this updates your inventory */}
+      <div className="rounded-xl bg-muted p-4 flex items-start gap-3">
+        <div className="rounded-lg bg-primary/10 text-primary p-1.5 flex-shrink-0">
+          <active.icon className="h-4 w-4" />
+        </div>
+        <div>
+          <p className="text-sm font-medium">{active.label}: how it updates your inventory</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{active.behavior}</p>
+        </div>
       </div>
 
       {/* Tab content */}

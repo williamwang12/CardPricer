@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { auth } from "@/lib/auth";
 import {
   addCard as dbAddCard,
@@ -10,6 +10,7 @@ import {
   updateCard,
   massageNames,
   rollbackImport,
+  cardsTag,
 } from "@/lib/db/cards";
 import type { Card, CardInput } from "@/lib/types";
 
@@ -23,6 +24,7 @@ export async function addCardAction(card: CardInput) {
   const email = await getUserEmail();
   await dbAddCard(card, email);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
 }
 
 export async function saveEditsAction(
@@ -30,20 +32,24 @@ export async function saveEditsAction(
   deletedIndices: number[],
   originalCards: Card[]
 ) {
+  const email = await getUserEmail();
   await dbSaveEdits(editedRows, deletedIndices, originalCards);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
 }
 
 export async function deleteAllAction() {
   const email = await getUserEmail();
   await replaceAllCards([], email);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
 }
 
 export async function replaceAllAction(cards: CardInput[]) {
   const email = await getUserEmail();
   const count = await replaceAllCards(cards, email);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
   return count;
 }
 
@@ -51,13 +57,17 @@ export async function updateCardAction(
   cardId: number,
   fields: Record<string, unknown>
 ) {
+  const email = await getUserEmail();
   await updateCard(cardId, fields);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
 }
 
 export async function deleteCardsAction(cardIds: number[]) {
+  const email = await getUserEmail();
   await deleteCards(cardIds);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
 }
 
 export async function savePriceAction(
@@ -65,25 +75,29 @@ export async function savePriceAction(
   marketPrice: number | null,
   tcgplayerUrl: string | null
 ) {
+  const email = await getUserEmail();
   await updateCard(cardId, {
     market_price: marketPrice,
     tcgplayer_url: tcgplayerUrl,
   });
+  updateTag(cardsTag(email));
 }
 
 export async function saveCostBasisAction(
   cardId: number,
   costBasis: number | null
 ): Promise<void> {
-  await getUserEmail();
+  const email = await getUserEmail();
   await updateCard(cardId, { cost_basis: costBasis });
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
 }
 
 export async function massageNamesAction() {
   const email = await getUserEmail();
   const count = await massageNames(email);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
   return count;
 }
 
@@ -93,5 +107,6 @@ export async function rollbackImportAction(
   const email = await getUserEmail();
   const count = await rollbackImport(imported, email);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
   return count;
 }

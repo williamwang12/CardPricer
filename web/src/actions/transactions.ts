@@ -1,8 +1,9 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { auth } from "@/lib/auth";
 import { buyCard, sellCard } from "@/lib/db/transactions";
+import { cardsTag } from "@/lib/db/cards";
 
 async function getUserEmail(): Promise<string> {
   const session = await auth();
@@ -20,6 +21,7 @@ export async function logBuyAction(
   await buyCard(cardName, cardNumber, quantity, amount, email);
   revalidatePath("/inventory");
   revalidatePath("/transactions");
+  updateTag(cardsTag(email));
 }
 
 export async function logSellAction(
@@ -33,6 +35,7 @@ export async function logSellAction(
   if (!err) {
     revalidatePath("/inventory");
     revalidatePath("/transactions");
+    updateTag(cardsTag(email));
   }
   return err;
 }

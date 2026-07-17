@@ -1,4 +1,6 @@
 import { supabase } from "@/lib/supabase";
+import { unstable_cache } from "next/cache";
+import { cardsTag } from "@/lib/db/cards";
 
 const TABLE = "tcg_catalog";
 
@@ -38,6 +40,67 @@ export const EXCLUDE_PATTERNS = [
   "%POP Series%",
   "%Starter Deck%",
 ];
+
+export interface CardImageInfo {
+  image_url: string | null;
+  setName: string;
+}
+
+// Look up catalog images (+ set name) for a user's inventory cards, matched
+// by their saved tcgplayer_url. Cards without a tcgplayer_url (never synced /
+// priced) simply won't have an entry in the returned map.
+export async function loadCardImages(
+  cards: { id: number; tcgplayer_url: string | null }[]
+): Promise<Record<number, CardImageInfo>> {
+  const result: Record<number, CardImageInfo> = {};
+  const urlToIds = new Map<string, number[]>();
+
+  for (const c of cards) {
+    if (c.tcgplayer_url) {
+      const ids = urlToIds.get(c.tcgplayer_url) ?? [];
+      ids.push(c.id);
+      urlToIds.set(c.tcgplayer_url, ids);
+    }
+  }
+
+  const urls = [...urlToIds.keys()];
+  const BATCH = 100;
+
+  for (let i = 0; i < urls.length; i += BATCH) {
+    const batch = urls.slice(i, i + BATCH);
+    const { data } = await supabase
+      .from(TABLE)
+      .select("url, image_url, group_name")
+      .in("url", batch);
+
+    if (data) {
+      for (const row of data) {
+        const ids = urlToIds.get(row.url);
+        if (ids) {
+          for (const id of ids) {
+            result[id] = { image_url: row.image_url, setName: row.group_name };
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+// Cached wrapper for page reads — keyed by userEmail and tagged with the
+// same `cards:${userEmail}` tag as loadAllCardsCached, so both invalidate
+// together whenever the user's cards change.
+export async function loadCardImagesCached(
+  userEmail: string,
+  cards: { id: number; tcgplayer_url: string | null }[]
+): Promise<Record<number, CardImageInfo>> {
+  return unstable_cache(
+    () => loadCardImages(cards),
+    ["load-card-images", userEmail],
+    { tags: [cardsTag(userEmail)], revalidate: 60 }
+  )();
+}
 
 export async function getAllSets(): Promise<CatalogSet[]> {
   const { data, error } = await supabase.rpc("get_catalog_sets");

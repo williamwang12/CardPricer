@@ -1,0 +1,27 @@
+-- Backfill: strip stray card-number suffixes from tcg_catalog.clean_name.
+--
+-- BUG: clean_name was populated directly from TCGPlayer's own `cleanName`
+-- field, which for many secret-rare/alt-art/promo variants includes the
+-- product's number suffix baked right into the string, e.g.
+--   name:       "Ethan's Typhlosion - 190/182"
+--   clean_name: "Ethans Typhlosion 190 182"   (wrong -- should be just the name)
+-- This made clean_name unreliable for search/autocomplete/matching, since
+-- the actual card number is already stored separately in tcg_catalog.number.
+--
+-- FIX (code): src/lib/data/tcgcsv.ts now derives clean_name itself via
+-- deriveCleanName() (src/lib/utils.ts) -- split on " - " to drop the number
+-- suffix, strip a trailing "(variant)" annotation, and strip apostrophes --
+-- instead of trusting TCGPlayer's cleanName. Applied on every future
+-- /api/cron/sync-catalog run.
+--
+-- FIX (data): backfilled all existing rows directly against production via
+-- the app's Supabase key on 2026-07-16 (18,734 of 44,537 rows updated, 0
+-- failures). This SQL reproduces the same fix for reference/re-running
+-- (e.g. after restoring from a backup); it's idempotent since it only
+-- touches rows where clean_name still contains digits after the name.
+--
+-- Note: this can't be expressed as a single portable SQL statement (the
+-- derivation needs to mirror deriveCleanName()'s JS logic exactly, including
+-- the "keep everything before ' - '" split and trailing "(...)" strip), so
+-- re-run the sync-catalog cron job (which now uses the fixed logic) or the
+-- equivalent backfill script instead of hand-writing the transform in SQL.

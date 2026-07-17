@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import type { CardInput } from "@/lib/types";
+import { normalizeName } from "@/lib/utils";
 import { loadAllCards } from "./cards";
 
 const TABLE = "cards";
@@ -14,12 +15,13 @@ export async function syncCollectr(
   // Merge duplicate Collectr rows (same name+number, different grade)
   const merged = new Map<string, CardInput>();
   for (const cc of collectrCards) {
-    const key = `${cc.name.toLowerCase()}\0${cc.number}`;
+    const name = normalizeName(cc.name);
+    const key = `${name.toLowerCase()}\0${cc.number}`;
     const prev = merged.get(key);
     if (prev) {
       prev.quantity += cc.quantity;
     } else {
-      merged.set(key, { ...cc });
+      merged.set(key, { ...cc, name });
     }
   }
 
@@ -78,12 +80,14 @@ export async function upsertCard(
   card: CardInput,
   userEmail: string
 ): Promise<"matched" | "added"> {
+  const name = normalizeName(card.name);
+
   // Check for existing card with same name+number
   const { data: existing } = await supabase
     .from(TABLE)
     .select("id, quantity, market_price")
     .eq("user_email", userEmail)
-    .eq("name", card.name)
+    .eq("name", name)
     .eq("number", card.number)
     .limit(1);
 
@@ -99,7 +103,7 @@ export async function upsertCard(
 
   await supabase.from(TABLE).upsert(
     {
-      name: card.name,
+      name,
       number: card.number,
       quantity: card.quantity,
       market_price: card.market_price ?? null,

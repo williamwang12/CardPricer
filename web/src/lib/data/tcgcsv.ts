@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { EXCLUDE_PATTERNS } from "@/lib/db/catalog";
+import { deriveCleanName } from "@/lib/utils";
 
 const CATEGORY_ID = "3"; // Pokemon
 const BASE_URL = "https://tcgcsv.com/tcgplayer";
@@ -158,7 +159,7 @@ export async function syncGroup(
           product_id: product.productId,
           sub_type_name: price.subTypeName || "Normal",
           name: product.name,
-          clean_name: product.cleanName,
+          clean_name: deriveCleanName(product.name),
           number,
           group_id: groupId,
           group_name: groupName,
@@ -175,7 +176,7 @@ export async function syncGroup(
         product_id: product.productId,
         sub_type_name: "Normal",
         name: product.name,
-        clean_name: product.cleanName,
+        clean_name: deriveCleanName(product.name),
         number,
         group_id: groupId,
         group_name: groupName,

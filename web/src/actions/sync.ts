@@ -1,9 +1,9 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { auth } from "@/lib/auth";
 import { syncCollectr, upsertCard, removeStaleCards } from "@/lib/db/sync";
-import { loadAllCards, updatePrices } from "@/lib/db/cards";
+import { loadAllCards, updatePrices, cardsTag } from "@/lib/db/cards";
 import { bulkSearchTcgplayer, loadCatalogIndex } from "@/lib/data/scraper";
 import type { CardInput } from "@/lib/types";
 
@@ -20,18 +20,22 @@ export async function syncCollectrAction(
   const email = await getUserEmail();
   const result = await syncCollectr(cards, email, addOnly);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
   return result;
 }
 
 export async function upsertCardAction(card: CardInput) {
   const email = await getUserEmail();
-  return upsertCard(card, email);
+  const result = await upsertCard(card, email);
+  updateTag(cardsTag(email));
+  return result;
 }
 
 export async function removeStaleCardsAction(importedNames: string[]) {
   const email = await getUserEmail();
   const removed = await removeStaleCards(importedNames, email);
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
   return removed;
 }
 
@@ -52,5 +56,6 @@ export async function refreshPricesAction() {
   }
 
   revalidatePath("/inventory");
+  updateTag(cardsTag(email));
   return updates.length;
 }

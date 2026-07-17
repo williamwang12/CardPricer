@@ -4,7 +4,7 @@ import { getEvent } from "@/lib/db/events";
 import { isAttendee, listAttendees } from "@/lib/db/event-attendees";
 import { getMyListing, listEventListings } from "@/lib/db/event-listings";
 import { listOffersForEvent } from "@/lib/db/offers";
-import { loadAllCards } from "@/lib/db/cards";
+import { loadAllCardsCached } from "@/lib/db/cards";
 import EventDetailClient from "@/components/events/EventDetailClient";
 
 export default async function EventDetailPage({
@@ -30,7 +30,7 @@ export default async function EventDetailPage({
     ? await Promise.all([
         listAttendees(eventId),
         getMyListing(eventId, email),
-        loadAllCards(email),
+        loadAllCardsCached(email),
         listEventListings(eventId).then((ls) =>
           ls.filter((l) => l.user_email !== email)
         ),

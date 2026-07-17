@@ -1,17 +1,54 @@
+import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import type { Card, CardInput } from "@/lib/types";
 import { normalizeName } from "@/lib/utils";
 
 const TABLE = "cards";
 
+// Cache tag shared by all cached reads that depend on a user's card data.
+// Any function that mutates the `cards` table for a user MUST call
+// `revalidateTag(cardsTag(userEmail))` after writing, or page navigations
+// will keep serving stale cached data for up to the revalidate window below.
+export function cardsTag(userEmail: string): string {
+  return `cards:${userEmail}`;
+}
+
 export async function loadAllCards(userEmail: string): Promise<Card[]> {
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select("*")
-    .eq("user_email", userEmail)
-    .order("name");
-  if (error) throw error;
-  return data ?? [];
+  // Paginated fetch: Supabase/PostgREST caps unbounded selects at 1000 rows,
+  // so without this, any user with more than 1000 cards would silently only
+  // ever see/operate on their first 1000 (inventory, dashboard totals,
+  // snapshots, price refresh, etc. all rely on this function).
+  const PAGE = 1000;
+  const rows: Card[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select("*")
+      .eq("user_email", userEmail)
+      .order("name")
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+
+  return rows;
+}
+
+// Cached wrapper for page reads (Dashboard, Inventory, Export, Transactions,
+// etc.) — avoids re-querying Supabase on every navigation. Cached for up to
+// 60s and invalidated immediately whenever cards change via revalidateTag.
+export async function loadAllCardsCached(userEmail: string): Promise<Card[]> {
+  return unstable_cache(
+    () => loadAllCards(userEmail),
+    ["load-all-cards", userEmail],
+    { tags: [cardsTag(userEmail)], revalidate: 60 }
+  )();
 }
 
 export async function cardCount(userEmail: string): Promise<number> {
@@ -24,12 +61,14 @@ export async function cardCount(userEmail: string): Promise<number> {
 }
 
 export async function addCard(card: CardInput, userEmail: string): Promise<void> {
+  const name = normalizeName(card.name);
+
   // Check for existing card with same name+number for this user
   const { data: existing } = await supabase
     .from(TABLE)
     .select("id, quantity")
     .eq("user_email", userEmail)
-    .eq("name", card.name)
+    .eq("name", name)
     .eq("number", card.number);
 
   if (existing && existing.length > 0) {
@@ -44,7 +83,7 @@ export async function addCard(card: CardInput, userEmail: string): Promise<void>
   } else {
     await supabase.from(TABLE).upsert(
       {
-        name: card.name,
+        name,
         number: card.number,
         quantity: card.quantity,
         market_price: card.market_price ?? null,

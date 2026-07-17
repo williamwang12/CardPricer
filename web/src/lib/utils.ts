@@ -1,5 +1,9 @@
 /**
  * Normalize a card name: Title Case, then uppercase EX/VSTAR/VMAX.
+ * Also strips apostrophes since our catalog (sourced from TCGPlayer's
+ * "clean name") never contains them, e.g. "Lillie's Determination" ->
+ * "Lillies Determination". Without this, names never match the catalog
+ * and cards can't sync prices/images.
  */
 export function normalizeName(name: string): string {
   let result = name
@@ -8,6 +12,7 @@ export function normalizeName(name: string): string {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
   result = result.replace(/\b(ex|vstar|vmax)\b/gi, (m) => m.toUpperCase());
+  result = result.replace(/['\u2018\u2019]/g, "");
   return result;
 }
 
@@ -38,6 +43,19 @@ export function extractPokemonName(productName: string): string {
   name = name.replace(/\s*\([^)]*\)\s*$/, "").trim();
   return name;
 }
+
+/**
+ * Derive a catalog "clean name" from a raw TCGPlayer product name, stripping
+ * the " - <number>" suffix, any trailing "(variant)" annotation, and
+ * apostrophes. We compute this ourselves instead of trusting TCGPlayer's own
+ * `cleanName` field, since it sometimes includes the card number suffix
+ * verbatim (e.g. "Ethan's Typhlosion - 190/182" -> "Ethans Typhlosion 190
+ * 182" instead of just "Ethans Typhlosion").
+ */
+export function deriveCleanName(rawName: string): string {
+  return extractPokemonName(rawName).replace(/['\u2018\u2019]/g, "");
+}
+
 
 /**
  * Format a number as a float string, handling Excel-style float numbers.

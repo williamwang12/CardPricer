@@ -1,7 +1,14 @@
 import { supabase } from "@/lib/supabase";
-import type { Card } from "@/lib/types";
+import type { Card, Show } from "@/lib/types";
 import type { SnapshotCard } from "@/lib/db/label-snapshot";
 import type { Snapshot } from "@/lib/db/collection-snapshots";
+
+export interface NextShow {
+  id: number;
+  name: string;
+  date: string;
+  dateEnd: string | null;
+}
 
 export interface SetValue {
   setName: string;
@@ -33,6 +40,7 @@ export interface DashboardData {
   drops: Mover[];
   lastRefreshed: string | null;
   history: { date: string; value: number }[];
+  nextShow: NextShow | null;
 }
 
 async function loadSetLookup(cards: Card[]): Promise<Map<number, string>> {
@@ -76,7 +84,8 @@ export async function loadDashboardData(
   cards: Card[],
   snapshot: { downloaded_at: string; cards: SnapshotCard[] } | null,
   lastRefreshed: Date | null,
-  snapshots: Snapshot[] = []
+  snapshots: Snapshot[] = [],
+  shows: Show[] = []
 ): Promise<DashboardData> {
   const totalCards = cards.reduce((sum, c) => sum + c.quantity, 0);
   const uniqueCards = cards.length;
@@ -194,6 +203,19 @@ export async function loadDashboardData(
     value: s.total_value,
   }));
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const nextShowRaw = shows
+    .filter((s) => !s.finalized_at && (s.date_end ?? s.date) >= todayStr)
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
+  const nextShow: NextShow | null = nextShowRaw
+    ? {
+        id: nextShowRaw.id,
+        name: nextShowRaw.name,
+        date: nextShowRaw.date,
+        dateEnd: nextShowRaw.date_end,
+      }
+    : null;
+
   return {
     totalValue,
     totalCards,
@@ -210,5 +232,6 @@ export async function loadDashboardData(
     drops,
     lastRefreshed: lastRefreshed?.toISOString() ?? null,
     history,
+    nextShow,
   };
 }

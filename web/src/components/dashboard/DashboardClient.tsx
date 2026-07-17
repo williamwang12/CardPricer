@@ -7,9 +7,9 @@ import {
   TrendingDown,
   Upload,
   Clock,
-  ArrowUpRight,
-  ArrowDownRight,
   BarChart3,
+  CalendarDays,
+  Download,
 } from "lucide-react";
 import {
   LineChart,
@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useCurrency } from "@/components/currency-context";
 import type { DashboardData } from "@/lib/db/dashboard";
+import PriceMoversCarousel from "@/components/dashboard/PriceMoversCarousel";
 
 interface Props {
   data: DashboardData;
@@ -48,6 +49,12 @@ const TIMEFRAMES = [
 function formatAxisDate(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatShowDate(date: string, dateEnd: string | null) {
+  const start = formatAxisDate(date);
+  if (!dateEnd || dateEnd === date) return start;
+  return `${start} \u2013 ${formatAxisDate(dateEnd)}`;
 }
 
 function CollectionChart({
@@ -151,10 +158,10 @@ function CollectionChart({
             <Line
               type="monotone"
               dataKey="value"
-              stroke="hsl(var(--primary))"
+              stroke="var(--primary)"
               strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4 }}
+              dot={{ r: 3, stroke: "var(--primary)", strokeWidth: 1, fill: "var(--primary)" }}
+              activeDot={{ r: 5 }}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -181,7 +188,7 @@ export default function DashboardClient({ data }: Props) {
           and set breakdown.
         </p>
         <Button asChild>
-          <Link href="/add">
+          <Link href="/import">
             <Upload className="h-4 w-4" />
             Import inventory
           </Link>
@@ -206,38 +213,101 @@ export default function DashboardClient({ data }: Props) {
           )}
         </div>
         <Button asChild>
-          <Link href="/add">
+          <Link href="/import">
             <Upload className="h-4 w-4" />
             Import inventory
           </Link>
         </Button>
       </div>
 
-      {/* Hero value card */}
-      <div className="rounded-xl bg-muted p-5 sm:p-6">
-        <p className="text-sm text-muted-foreground">Total collection value</p>
-        <p className="font-heading text-4xl sm:text-[2.75rem] leading-tight tabular-nums mt-1">
-          {fmt(data.totalValue)}
-        </p>
-        {hasSnapshot && (
-          <span
-            className={`inline-flex items-center gap-1.5 mt-3 text-sm font-medium px-2.5 py-1 rounded-md ${
-              isPositive
-                ? "bg-green-100 text-green-800"
-                : "bg-red-100 text-red-800"
-            }`}
-          >
-            {isPositive ? (
-              <TrendingUp className="h-3.5 w-3.5" />
-            ) : (
-              <TrendingDown className="h-3.5 w-3.5" />
-            )}
-            {isPositive ? "+" : "\u2212"}
-            {fmt(Math.abs(data.netMovement))} ·{" "}
-            {Math.abs(data.netMovementPct).toFixed(1)}% since last export
-          </span>
-        )}
+      {/* Hero value card + export panel */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 rounded-xl bg-muted p-5 sm:p-6">
+          <p className="text-sm text-muted-foreground">Total collection value</p>
+          <p className="font-heading text-4xl sm:text-[2.75rem] leading-tight tabular-nums mt-1">
+            {fmt(data.totalValue)}
+          </p>
+          {hasSnapshot && (
+            <span
+              className={`inline-flex items-center gap-1.5 mt-3 text-sm font-medium px-2.5 py-1 rounded-md ${
+                isPositive
+                  ? "bg-green-100 text-green-800"
+                  : "bg-red-100 text-red-800"
+              }`}
+            >
+              {isPositive ? (
+                <TrendingUp className="h-3.5 w-3.5" />
+              ) : (
+                <TrendingDown className="h-3.5 w-3.5" />
+              )}
+              {isPositive ? "+" : "\u2212"}
+              {fmt(Math.abs(data.netMovement))} ·{" "}
+              {Math.abs(data.netMovementPct).toFixed(1)}% since last export
+            </span>
+          )}
+        </div>
+
+        <div className="rounded-xl border bg-card p-5 flex flex-col gap-4">
+          <div className="flex items-start gap-2.5">
+            <div className="rounded-lg bg-primary/10 text-primary p-1.5 flex-shrink-0">
+              <CalendarDays className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Next show</p>
+              {data.nextShow ? (
+                <>
+                  <p className="text-sm font-medium truncate">
+                    {data.nextShow.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatShowDate(data.nextShow.date, data.nextShow.dateEnd)}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm font-medium text-muted-foreground">
+                  No upcoming shows
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2.5">
+            <div className="rounded-lg bg-primary/10 text-primary p-1.5 flex-shrink-0">
+              <Clock className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Last export</p>
+              <p className="text-sm font-medium">
+                {data.lastSnapshotAt ? timeAgo(data.lastSnapshotAt) : "Never"}
+              </p>
+            </div>
+          </div>
+
+          <Button asChild size="lg" className="mt-auto w-full">
+            <Link href="/export">
+              <Download className="h-4 w-4" />
+              Export price list
+            </Link>
+          </Button>
+        </div>
       </div>
+
+      {/* Biggest movers */}
+      {hasSnapshot && (data.gainers.length > 0 || data.drops.length > 0) && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-heading text-base font-semibold">
+              Biggest movers since last export
+            </h2>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/export" className="text-xs">
+                See all movers
+              </Link>
+            </Button>
+          </div>
+          <PriceMoversCarousel gainers={data.gainers} drops={data.drops} />
+        </div>
+      )}
 
       {/* KPI row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -317,101 +387,6 @@ export default function DashboardClient({ data }: Props) {
                 </div>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Biggest movers */}
-      {hasSnapshot && (data.gainers.length > 0 || data.drops.length > 0) && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-heading text-base font-semibold">
-              Biggest movers since last export
-            </h2>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/export" className="text-xs">
-                See all movers
-              </Link>
-            </Button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Gainers */}
-            <div className="rounded-lg border overflow-hidden">
-              <div className="text-sm text-green-700 px-3.5 py-2.5 border-b flex items-center gap-1.5 font-medium">
-                <ArrowUpRight className="h-3.5 w-3.5" />
-                Gainers
-              </div>
-              {data.gainers.length === 0 ? (
-                <p className="text-sm text-muted-foreground px-3.5 py-4 text-center">
-                  No gainers
-                </p>
-              ) : (
-                data.gainers.map((m, i) => (
-                  <div
-                    key={`${m.name}-${m.number}`}
-                    className={`px-3.5 py-2.5 flex items-center justify-between gap-2 ${
-                      i < data.gainers.length - 1 ? "border-b" : ""
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm truncate">{m.name}</p>
-                      {m.setName && (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {m.setName}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-xs text-muted-foreground tabular-nums">
-                        {fmt(m.oldPrice)} → {fmt(m.newPrice)}
-                      </p>
-                      <p className="text-sm font-medium text-green-700 tabular-nums">
-                        +{m.deltaPct.toFixed(1)}%
-                      </p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Drops */}
-            <div className="rounded-lg border overflow-hidden">
-              <div className="text-sm text-red-700 px-3.5 py-2.5 border-b flex items-center gap-1.5 font-medium">
-                <ArrowDownRight className="h-3.5 w-3.5" />
-                Drops
-              </div>
-              {data.drops.length === 0 ? (
-                <p className="text-sm text-muted-foreground px-3.5 py-4 text-center">
-                  No drops
-                </p>
-              ) : (
-                data.drops.map((m, i) => (
-                  <div
-                    key={`${m.name}-${m.number}`}
-                    className={`px-3.5 py-2.5 flex items-center justify-between gap-2 ${
-                      i < data.drops.length - 1 ? "border-b" : ""
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm truncate">{m.name}</p>
-                      {m.setName && (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {m.setName}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-xs text-muted-foreground tabular-nums">
-                        {fmt(m.oldPrice)} → {fmt(m.newPrice)}
-                      </p>
-                      <p className="text-sm font-medium text-red-700 tabular-nums">
-                        &minus;{m.deltaPct.toFixed(1)}%
-                      </p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
           </div>
         </div>
       )}
