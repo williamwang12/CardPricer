@@ -2,13 +2,36 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { loadAllCards } from "@/lib/db/cards";
 import { exportPriceList } from "@/lib/export/excel";
-import { saveSnapshot, loadSnapshot } from "@/lib/db/label-snapshot";
+import {
+  saveSnapshot,
+  loadSnapshot,
+  loadSnapshotAt,
+  listSnapshots,
+} from "@/lib/db/label-snapshot";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const { searchParams } = new URL(req.url);
+  const at = searchParams.get("at");
+  const list = searchParams.get("list");
+
+  // GET /api/export/price-list?list=1 → all snapshot summaries
+  if (list) {
+    const summaries = await listSnapshots(session.user.email);
+    return NextResponse.json(summaries);
+  }
+
+  // GET /api/export/price-list?at=<iso> → specific snapshot
+  if (at) {
+    const snapshot = await loadSnapshotAt(session.user.email, at);
+    return NextResponse.json(snapshot);
+  }
+
+  // GET /api/export/price-list → most recent snapshot (backwards compat)
   const snapshot = await loadSnapshot(session.user.email);
   return NextResponse.json(snapshot);
 }
@@ -32,9 +55,15 @@ export async function POST(req: NextRequest) {
 
   // Save snapshot of what's being exported
   await saveSnapshot(
-    cards.map((c) => ({ name: c.name, number: c.number, market_price: c.market_price })),
+    cards.map((c) => ({
+      name: c.name,
+      number: c.number,
+      market_price: c.market_price,
+    })),
     session.user.email
-  ).catch(() => { /* non-fatal */ });
+  ).catch(() => {
+    /* non-fatal */
+  });
 
   const buf = await exportPriceList(
     cards,
@@ -43,7 +72,8 @@ export async function POST(req: NextRequest) {
   );
   return new NextResponse(new Uint8Array(buf), {
     headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": 'attachment; filename="price_list.xlsx"',
     },
   });

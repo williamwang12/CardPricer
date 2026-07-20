@@ -52,27 +52,25 @@ export function HoloCard() {
       className="holo-card"
       aria-hidden="true"
     >
-      <div className="relative z-10 flex h-full flex-col justify-center p-7">
-        <span className="font-mono text-xs text-slate-400 tracking-wide">
-          085 / 165
-        </span>
+      {/* Card image */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="https://tcgplayer-cdn.tcgplayer.com/product/517017_400w.jpg"
+        alt=""
+        className="absolute inset-0 w-full h-full object-cover z-0 rounded-[inherit]"
+      />
 
-        <h3 className="mt-2 font-heading text-xl font-bold text-slate-900">
-          Charizard ex
-        </h3>
-
-        <div className="mt-5">
-          <span className="font-mono text-3xl font-bold tracking-tight text-slate-900">
-            $42.17
-          </span>
-        </div>
-        <span className="mt-1.5 text-xs font-semibold text-emerald-600">
-          +$3.20 since last export
-        </span>
-
-        <div className="mt-6 border-t border-slate-100 pt-3">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
-            TCGPlayer Market
+      {/* Price overlay */}
+      <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/80 via-black/50 to-transparent p-5 pt-12 rounded-b-[inherit]">
+        <div className="flex items-end justify-between gap-2">
+          <div>
+            <p className="text-white/70 text-xs font-medium">Charizard ex · 183/165</p>
+            <span className="font-mono text-2xl font-bold tracking-tight text-white">
+              $45.08
+            </span>
+          </div>
+          <span className="text-xs font-semibold text-emerald-400 mb-1">
+            +$2.41
           </span>
         </div>
       </div>

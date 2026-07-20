@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -20,6 +20,7 @@ import {
   Lightbulb,
   ShieldCheck,
   LogOut,
+  Bell,
   type LucideIcon,
 } from "lucide-react";
 import { signOutAction } from "@/actions/auth";
@@ -38,21 +39,27 @@ import {
 const PRIMARY_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/import", label: "Import", icon: Upload },
   { href: "/catalog", label: "Catalog", icon: BookOpen },
+  { href: "/shows", label: "My Shows", icon: Store },
   { href: "/charts", label: "Charts", icon: BarChart3 },
+  { href: "/import", label: "Import", icon: Upload },
   { href: "/export", label: "Export", icon: Download },
-  { href: "/events", label: "Events", icon: CalendarDays },
 ];
 
 const MORE_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/events", label: "Events", icon: CalendarDays },
   { href: "/transactions", label: "Transactions", icon: Receipt },
-  { href: "/shows", label: "My Shows", icon: Store },
   { href: "/dead-inventory", label: "Dead Inventory", icon: PackageX },
   { href: "/feedback", label: "Suggest Feature", icon: Lightbulb },
 ];
 
 const ALL_LINKS = [...PRIMARY_LINKS, ...MORE_LINKS];
+
+interface UpcomingShow {
+  id: number;
+  name: string;
+  date: string;
+}
 
 interface NavProps {
   user?: {
@@ -61,6 +68,7 @@ interface NavProps {
     image?: string | null;
   } | null;
   isAdmin?: boolean;
+  upcomingShows?: UpcomingShow[];
 }
 
 function initialsOf(name?: string | null, email?: string | null) {
@@ -70,10 +78,56 @@ function initialsOf(name?: string | null, email?: string | null) {
   return source.slice(0, 2).toUpperCase();
 }
 
-export default function Nav({ user, isAdmin }: NavProps) {
+function formatShowDate(dateStr: string) {
+  const d = new Date(dateStr + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+const SEEN_SHOWS_KEY = "cardparser_seen_shows";
+
+function getSeenShowIds(): Set<number> {
+  try {
+    const raw = localStorage.getItem(SEEN_SHOWS_KEY);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as number[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSeenShowIds(ids: Set<number>) {
+  try {
+    localStorage.setItem(SEEN_SHOWS_KEY, JSON.stringify([...ids]));
+  } catch { /* ignore */ }
+}
+
+export default function Nav({ user, isAdmin, upcomingShows = [] }: NavProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const { currency, setCurrency } = useCurrency();
+  const [unseenCount, setUnseenCount] = useState(0);
+
+  useEffect(() => {
+    const seen = getSeenShowIds();
+    // Clean out IDs for shows no longer in the upcoming list
+    const currentIds = new Set(upcomingShows.map((s) => s.id));
+    const cleaned = new Set([...seen].filter((id) => currentIds.has(id)));
+    if (cleaned.size !== seen.size) saveSeenShowIds(cleaned);
+    setUnseenCount(upcomingShows.filter((s) => !cleaned.has(s.id)).length);
+  }, [upcomingShows]);
+
+  const markAllSeen = useCallback(() => {
+    const seen = getSeenShowIds();
+    for (const s of upcomingShows) seen.add(s.id);
+    saveSeenShowIds(seen);
+    setUnseenCount(0);
+  }, [upcomingShows]);
 
   const moreLinks = isAdmin
     ? [...MORE_LINKS, { href: "/admin/events", label: "Admin", icon: ShieldCheck }]
@@ -178,6 +232,44 @@ export default function Nav({ user, isAdmin }: NavProps) {
         {/* Desktop currency selector */}
         <div className="hidden sm:block flex-shrink-0">{currencySelect}</div>
 
+        {/* Notification bell */}
+        {user && (
+          <div className="hidden sm:block flex-shrink-0">
+            <DropdownMenu onOpenChange={(open) => { if (open) markAllSeen(); }}>
+              <DropdownMenuTrigger asChild>
+                <button className="relative p-1.5 rounded-lg outline-none hover:bg-muted transition-colors">
+                  <Bell className="h-4.5 w-4.5 text-muted-foreground" />
+                  {unseenCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                      {unseenCount}
+                    </span>
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuLabel>Upcoming Shows</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {upcomingShows.length === 0 ? (
+                  <div className="px-2 py-3 text-center text-sm text-muted-foreground">
+                    No shows in the next 7 days
+                  </div>
+                ) : (
+                  upcomingShows.map((show) => (
+                    <DropdownMenuItem key={show.id} asChild>
+                      <Link href={`/shows/${show.id}`} className="flex flex-col items-start gap-0.5">
+                        <span className="font-medium">{show.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatShowDate(show.date)}
+                        </span>
+                      </Link>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
+
         {/* Desktop user menu */}
         <div className="hidden sm:flex items-center flex-shrink-0">
           {user ? (
@@ -230,7 +322,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
         {/* Mobile hamburger */}
         <button
           className="sm:hidden ml-auto p-1.5 rounded-lg hover:bg-muted transition-colors"
-          onClick={() => setMobileOpen((o) => !o)}
+          onClick={() => { setMobileOpen((o) => { if (!o && upcomingShows.length > 0) markAllSeen(); return !o; }); }}
           aria-label="Toggle menu"
         >
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -240,7 +332,7 @@ export default function Nav({ user, isAdmin }: NavProps) {
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="sm:hidden border-t border-border bg-white px-4 py-3 flex flex-col gap-1 animate-in fade-in-0 slide-in-from-top-2 duration-150">
-          {allLinks.map((link) => {
+          {PRIMARY_LINKS.map((link) => {
             const Icon = link.icon;
             return (
               <Link
@@ -254,6 +346,54 @@ export default function Nav({ user, isAdmin }: NavProps) {
               </Link>
             );
           })}
+          {/* Collapsible "More" section for secondary links */}
+          <button
+            onClick={() => setMobileMoreOpen((o) => !o)}
+            className={cn(
+              "flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full",
+              moreLinks.some((l) => pathname.startsWith(l.href))
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            <ChevronDown className={cn("h-4 w-4 transition-transform", mobileMoreOpen && "rotate-180")} />
+            More
+          </button>
+          {mobileMoreOpen && moreLinks.map((link) => {
+            const Icon = link.icon;
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setMobileOpen(false)}
+                className={cn(mobileLinkClass(link.href), "pl-10")}
+              >
+                <Icon className="h-4 w-4" />
+                {link.label}
+              </Link>
+            );
+          })}
+          {/* Mobile upcoming shows */}
+          {user && upcomingShows.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-border flex flex-col gap-1">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 py-1">
+                Upcoming Shows
+              </span>
+              {upcomingShows.map((show) => (
+                <Link
+                  key={show.id}
+                  href={`/shows/${show.id}`}
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center justify-between px-3 py-2 rounded-lg text-sm hover:bg-muted transition-colors"
+                >
+                  <span className="font-medium truncate">{show.name}</span>
+                  <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">
+                    {formatShowDate(show.date)}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
           <div className="mt-2 pt-2 border-t border-border flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Currency:</span>

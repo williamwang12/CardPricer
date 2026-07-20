@@ -9,7 +9,10 @@ import {
   LayoutGrid,
   Rows3,
   ImageOff,
+  Download,
+  Upload,
 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -20,11 +23,14 @@ import {
   deleteAllAction,
 } from "@/actions/cards";
 import { useCurrency } from "@/components/currency-context";
+import CardDetailModal from "@/components/catalog/CardDetailModal";
+import type { CardDetailInfo } from "@/components/catalog/CardDetailModal";
 import type { Card } from "@/lib/types";
 
 interface CardImageInfo {
   image_url: string | null;
   setName: string;
+  product_id: number | null;
 }
 
 interface Props {
@@ -94,6 +100,7 @@ export default function InventoryClient({
   const [cards, setCards] = useState<Card[]>(initialCards);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [view, setView] = useState<"table" | "grid">("table");
+  const [detailCard, setDetailCard] = useState<CardDetailInfo | null>(null);
   const [, startTransition] = useTransition();
 
   // Keep cards in sync when server re-renders pass new initialCards
@@ -209,6 +216,24 @@ export default function InventoryClient({
     }
   }, []);
 
+  // ── Card detail popup ────────────────────────────────────────────────────
+  const openCardDetail = useCallback(
+    (card: Card) => {
+      const info = cardImages[card.id];
+      if (!info?.product_id) return; // can't show detail without catalog match
+      setDetailCard({
+        product_id: info.product_id,
+        clean_name: card.name,
+        number: card.number || null,
+        group_name: info.setName,
+        image_url: info.image_url,
+        url: card.tcgplayer_url,
+        market_price: card.market_price,
+      });
+    },
+    [cardImages]
+  );
+
   // ── Delete all ─────────────────────────────────────────────────────────────
   const handleDeleteAll = async () => {
     if (!confirm("Delete ALL cards? This cannot be undone.")) return;
@@ -226,7 +251,8 @@ export default function InventoryClient({
     <div className="flex flex-col gap-4">
       {/* Toolbar */}
       <div className="flex flex-col gap-2">
-        {/* Title + stats */}
+        {/* Title + stats + export */}
+        <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="font-heading text-xl font-semibold">Inventory</h1>
           <p className="text-sm text-muted-foreground flex flex-wrap items-baseline gap-x-2">
@@ -257,6 +283,21 @@ export default function InventoryClient({
               <span>· Prices refresh daily</span>
             )}
           </p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button variant="outline" asChild>
+            <Link href="/import">
+              <Upload className="h-4 w-4" />
+              Update Inventory
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href="/export">
+              <Download className="h-4 w-4" />
+              Export Labels
+            </Link>
+          </Button>
+        </div>
         </div>
         {/* Action buttons */}
         <div className="flex flex-wrap gap-2">
@@ -335,7 +376,8 @@ export default function InventoryClient({
             return (
               <div
                 key={card.id}
-                className="group relative flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg"
+                onClick={() => openCardDetail(card)}
+                className="group relative flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg cursor-pointer"
               >
                 <div className="relative aspect-[63/88] w-full overflow-hidden bg-muted">
                   {info?.image_url ? (
@@ -360,7 +402,7 @@ export default function InventoryClient({
                     </span>
                   )}
                   <button
-                    onClick={() => handleDeleteOne(card)}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteOne(card); }}
                     className="absolute left-1.5 top-1.5 rounded-full bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-destructive group-hover:opacity-100"
                     title="Delete"
                   >
@@ -554,28 +596,29 @@ export default function InventoryClient({
                 {cards.map((card) => (
                   <tr
                     key={card.id}
-                    className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+                    onClick={() => openCardDetail(card)}
+                    className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
                   >
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
                         checked={selected.has(card.id)}
                         onCheckedChange={() => toggleOne(card.id)}
                         aria-label={`Select ${card.name}`}
                       />
                     </td>
-                    <td className="px-3 py-2 max-w-xs">
+                    <td className="px-3 py-2 max-w-xs" onClick={(e) => e.stopPropagation()}>
                       <EditableCell
                         value={card.name}
                         onSave={(v) => handleUpdate(card, "name", v)}
                       />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <EditableCell
                         value={card.number}
                         onSave={(v) => handleUpdate(card, "number", v)}
                       />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <EditableCell
                         value={String(card.quantity)}
                         onSave={(v) => handleUpdate(card, "quantity", v)}
@@ -583,7 +626,7 @@ export default function InventoryClient({
                         className="w-12"
                       />
                     </td>
-                    <td className="px-3 py-2 text-center">
+                    <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
                         checked={card.manual_price}
                         onCheckedChange={(c) =>
@@ -592,7 +635,7 @@ export default function InventoryClient({
                         aria-label="Manual price"
                       />
                     </td>
-                    <td className="px-3 py-2 text-right font-mono">
+                    <td className="px-3 py-2 text-right font-mono" onClick={(e) => e.stopPropagation()}>
                       {card.manual_price ? (
                         <EditableCell
                           value={card.market_price != null ? String(card.market_price) : ""}
@@ -615,7 +658,7 @@ export default function InventoryClient({
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono">
+                    <td className="px-3 py-2 text-right font-mono" onClick={(e) => e.stopPropagation()}>
                       <EditableCell
                         value={card.cost_basis != null ? String(card.cost_basis) : ""}
                         onSave={(v) => {
@@ -649,7 +692,7 @@ export default function InventoryClient({
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-center">
+                    <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                       {card.tcgplayer_url ? (
                         <a
                           href={card.tcgplayer_url}
@@ -662,7 +705,7 @@ export default function InventoryClient({
                         </a>
                       ) : null}
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => handleDeleteOne(card)}
                         className="text-muted-foreground hover:text-destructive transition-colors"
@@ -699,6 +742,13 @@ export default function InventoryClient({
             </table>
           </div>
         </>
+      )}
+
+      {detailCard && (
+        <CardDetailModal
+          card={detailCard}
+          onClose={() => setDetailCard(null)}
+        />
       )}
     </div>
   );

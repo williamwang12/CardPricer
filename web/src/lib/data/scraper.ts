@@ -52,7 +52,7 @@ type CatalogRow = {
 /**
  * From a set of catalog rows, find the best match considering card number.
  */
-function matchFromRows(
+export function matchFromRows(
   rows: CatalogRow[],
   numNormalized: string
 ): { price: number | null; url: string | null } | null {
@@ -89,7 +89,7 @@ function formatResult(row: {
  * Pick the best variant from matching rows.
  * Prefer Holofoil > Normal > any other sub_type_name.
  */
-function pickBestVariant(
+export function pickBestVariant(
   rows: CatalogRow[]
 ): { market_price: number | null; url: string | null } {
   const holofoil = rows.find((r) => r.sub_type_name === "Holofoil");

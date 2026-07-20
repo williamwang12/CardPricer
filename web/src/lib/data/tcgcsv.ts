@@ -38,6 +38,12 @@ const MODERN_ERA_PREFIXES = [
   "Surging Sparks",
   "Prismatic",
   "Journey Together",
+  // Mega Evolution era (2025+): ME01-ME05 main sets, MEE energies, and the
+  // "ME: <name>" promo/celebration sets (e.g. "ME: 30th Celebration").
+  "Mega Evolution",
+  "ME0",
+  "MEE",
+  "ME:",
 ];
 
 export function isModernMainlineSet(groupName: string): boolean {
@@ -206,31 +212,30 @@ export async function syncGroup(
     }
   }
 
-  // Save price history for modern mainline sets
-  if (isModernMainlineSet(groupName)) {
-    const today = new Date().toISOString().slice(0, 10);
-    const historyRows = rows
-      .filter((r) => r.market_price != null)
-      .map((r) => ({
-        product_id: r.product_id,
-        sub_type_name: r.sub_type_name,
-        captured_at: today,
-        market_price: r.market_price,
-        low_price: r.low_price,
-      }));
+  // Save price history for all mainline sets (promos/special products are
+  // already excluded at the group level by syncAllGroups callers).
+  const today = new Date().toISOString().slice(0, 10);
+  const historyRows = rows
+    .filter((r) => r.market_price != null)
+    .map((r) => ({
+      product_id: r.product_id,
+      sub_type_name: r.sub_type_name,
+      captured_at: today,
+      market_price: r.market_price,
+      low_price: r.low_price,
+    }));
 
-    for (let i = 0; i < historyRows.length; i += BATCH_SIZE) {
-      const batch = historyRows.slice(i, i + BATCH_SIZE);
-      const { error } = await supabase
-        .from("card_price_history")
-        .upsert(batch, {
-          onConflict: "product_id,sub_type_name,captured_at",
-        });
-      if (error) {
-        console.error(
-          `Price history upsert failed for group ${groupId} batch ${i}: ${error.message}`
-        );
-      }
+  for (let i = 0; i < historyRows.length; i += BATCH_SIZE) {
+    const batch = historyRows.slice(i, i + BATCH_SIZE);
+    const { error } = await supabase
+      .from("card_price_history")
+      .upsert(batch, {
+        onConflict: "product_id,sub_type_name,captured_at",
+      });
+    if (error) {
+      console.error(
+        `Price history upsert failed for group ${groupId} batch ${i}: ${error.message}`
+      );
     }
   }
 

@@ -12,10 +12,16 @@ import {
   ShoppingCart,
   Loader2,
   CheckCircle2,
+  Circle,
+  Upload,
+  Tag,
+  ClipboardCheck,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/cn";
 import { takeSnapshotAction, finalizeShowAction } from "@/actions/shows";
 import { diffShowSnapshots } from "@/lib/diff";
 import { useCurrency } from "@/components/currency-context";
@@ -42,6 +48,15 @@ function formatTimestamp(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+interface ChecklistStep {
+  id: string;
+  title: string;
+  description: string;
+  done: boolean;
+  doneLabel?: string;
+  action?: React.ReactNode;
 }
 
 export default function ShowDetailClient({ show, initialPre, initialPost }: Props) {
@@ -89,13 +104,10 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
   };
 
   const handleFinalize = async () => {
-    if (finalized || finalizing) return; // already finalized or in progress — button is locked
+    if (finalized || finalizing) return;
     setFinalizing(true);
     setFinalizeProgress(8);
 
-    // Finalizing is a single request/response with no incremental progress
-    // events, so simulate steady progress while we wait and snap to 100%
-    // when the request resolves.
     progressTimer.current = setInterval(() => {
       setFinalizeProgress((p) => (p >= 90 ? p : p + Math.random() * 12));
     }, 250);
@@ -118,6 +130,147 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
     }
   };
 
+  // Build checklist steps
+  const steps: ChecklistStep[] = [
+    {
+      id: "sync",
+      title: "Sync your inventory",
+      description: "Make sure your inventory is up to date before the show.",
+      done: false, // no way to track this automatically — always available
+      action: (
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/inventory">
+              <Package className="h-3.5 w-3.5" />
+              Inventory
+            </Link>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/import">
+              <Upload className="h-3.5 w-3.5" />
+              Import
+            </Link>
+          </Button>
+        </div>
+      ),
+    },
+    {
+      id: "labels",
+      title: "Export price labels",
+      description: "Print price stickers for your cards to display at the show.",
+      done: false, // always available
+      action: (
+        <Button size="sm" variant="outline" asChild>
+          <Link href="/export">
+            <Tag className="h-3.5 w-3.5" />
+            Go to Export
+            <ExternalLink className="h-3 w-3" />
+          </Link>
+        </Button>
+      ),
+    },
+    {
+      id: "pre-snapshot",
+      title: "Pre-show snapshot",
+      description: pre
+        ? `Snapshot taken ${formatTimestamp(pre.created_at)} (${pre.cards.length} cards).`
+        : "Auto-taken the day before or day of the show. You can also take one manually.",
+      done: !!pre,
+      doneLabel: pre ? `${pre.cards.length} cards snapshotted` : undefined,
+      action: (
+        <Button
+          size="sm"
+          variant={pre ? "outline" : "default"}
+          onClick={() => handleTakeSnapshot("pre")}
+          disabled={takingPre}
+        >
+          {takingPre ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Camera className="h-3.5 w-3.5" />
+          )}
+          {pre ? "Retake" : "Take Snapshot"}
+        </Button>
+      ),
+    },
+    {
+      id: "post-snapshot",
+      title: "Take post-show snapshot",
+      description: post
+        ? `Snapshot taken ${formatTimestamp(post.created_at)} (${post.cards.length} cards).`
+        : "Capture your inventory after the show to see what sold.",
+      done: !!post,
+      doneLabel: post ? `${post.cards.length} cards snapshotted` : undefined,
+      action: (
+        <Button
+          size="sm"
+          variant={post ? "outline" : "default"}
+          onClick={() => handleTakeSnapshot("post")}
+          disabled={takingPost}
+        >
+          {takingPost ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Camera className="h-3.5 w-3.5" />
+          )}
+          {post ? "Retake" : "Take Snapshot"}
+        </Button>
+      ),
+    },
+    {
+      id: "sync-after",
+      title: "Sync inventory after show",
+      description: "Update your inventory to reflect sales and any new cards acquired at the show.",
+      done: false,
+      action: (
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/inventory">
+              <Package className="h-3.5 w-3.5" />
+              Inventory
+            </Link>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/import">
+              <Upload className="h-3.5 w-3.5" />
+              Import
+            </Link>
+          </Button>
+        </div>
+      ),
+    },
+    {
+      id: "finalize",
+      title: "Finalize show",
+      description: finalized
+        ? "Show finalized — shelf-life counters have been updated."
+        : "Finalize to update shelf-life counters for dead inventory tracking. This can only be done once.",
+      done: finalized,
+      doneLabel: "Finalized",
+      action: !finalized ? (
+        <Button
+          size="sm"
+          onClick={handleFinalize}
+          disabled={finalizing || !pre || !post}
+        >
+          {finalizing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <ClipboardCheck className="h-3.5 w-3.5" />
+          )}
+          {finalizing ? "Finalizing…" : "Finalize Show"}
+        </Button>
+      ) : undefined,
+    },
+  ];
+
+  const completedCount = steps.filter((s) => s.done).length;
+  // Sync and labels are always "available" steps, not truly completable
+  const trackableSteps = steps.filter((s) =>
+    ["pre-snapshot", "post-snapshot", "finalize"].includes(s.id)
+  );
+  const trackableCompleted = trackableSteps.filter((s) => s.done).length;
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -127,14 +280,23 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <div className="flex flex-col gap-0.5">
-          <h1 className="font-heading text-xl font-semibold">{show.name}</h1>
+        <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+          <h1 className="font-heading text-xl font-semibold truncate">{show.name}</h1>
           <p className="text-xs text-muted-foreground">
             {formatDate(show.date)}
             {show.date_end && ` – ${formatDate(show.date_end)}`}
             {show.table_fee != null && ` · $${Number(show.table_fee).toFixed(2)} table fee`}
           </p>
         </div>
+        <Badge
+          variant="secondary"
+          className={cn(
+            "flex-shrink-0",
+            finalized && "text-green-700 bg-green-50 border-green-200"
+          )}
+        >
+          {trackableCompleted}/{trackableSteps.length} complete
+        </Badge>
       </div>
 
       {show.notes && (
@@ -143,78 +305,78 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
         </p>
       )}
 
-      {/* Snapshot Controls */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-lg border p-4 flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Pre-Show Snapshot</h2>
-            {pre && (
-              <Badge variant="secondary">
-                {pre.cards.length} cards
-              </Badge>
-            )}
-          </div>
-          {pre ? (
-            <p className="text-xs text-muted-foreground">
-              Taken {formatTimestamp(pre.created_at)}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No snapshot yet. Take one before the show.
-            </p>
-          )}
-          <Button
-            size="sm"
-            variant={pre ? "outline" : "default"}
-            onClick={() => handleTakeSnapshot("pre")}
-            disabled={takingPre}
-          >
-            {takingPre ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Camera className="h-4 w-4" />
-            )}
-            {pre ? "Retake" : "Take Snapshot"}
-          </Button>
-        </div>
+      {/* Checklist */}
+      <div className="flex flex-col gap-0.5">
+        <h2 className="text-sm font-semibold mb-2">Show Checklist</h2>
+        <div className="rounded-lg border bg-white divide-y">
+          {steps.map((step, i) => {
+            const isPrereqMet =
+              step.id !== "finalize" || (!!pre && !!post);
 
-        <div className="rounded-lg border p-4 flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Post-Show Snapshot</h2>
-            {post && (
-              <Badge variant="secondary">
-                {post.cards.length} cards
-              </Badge>
-            )}
-          </div>
-          {post ? (
-            <p className="text-xs text-muted-foreground">
-              Taken {formatTimestamp(post.created_at)}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No snapshot yet. Take one after the show.
-            </p>
-          )}
-          <Button
-            size="sm"
-            variant={post ? "outline" : "default"}
-            onClick={() => handleTakeSnapshot("post")}
-            disabled={takingPost}
-          >
-            {takingPost ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Camera className="h-4 w-4" />
-            )}
-            {post ? "Retake" : "Take Snapshot"}
-          </Button>
+            return (
+              <div
+                key={step.id}
+                className={cn(
+                  "flex items-start gap-3 px-4 py-3.5",
+                  step.done && "bg-muted/20"
+                )}
+              >
+                {/* Step indicator */}
+                <div className="flex-shrink-0 mt-0.5">
+                  {step.done ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  ) : (
+                    <div className="relative">
+                      <Circle className="h-5 w-5 text-muted-foreground/30" />
+                      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-muted-foreground">
+                        {i + 1}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0 flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "text-sm font-medium",
+                        step.done && "text-muted-foreground line-through"
+                      )}
+                    >
+                      {step.title}
+                    </span>
+                    {step.done && step.doneLabel && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 text-green-700 bg-green-50 border-green-200">
+                        {step.doneLabel}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{step.description}</p>
+                </div>
+
+                {/* Action */}
+                {step.action && (
+                  <div className="flex-shrink-0">
+                    {step.action}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
+
+      {/* Finalize progress bar */}
+      {finalizing && (
+        <Progress value={finalizeProgress} className="h-2" />
+      )}
 
       {/* Diff Report */}
       {diff && (
         <>
+          <h2 className="text-sm font-semibold">Sales Report</h2>
+
           {/* Summary Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="rounded-lg border p-3 flex flex-col gap-1">
@@ -345,39 +507,6 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
             <Package className="h-4 w-4" />
             {diff.unsold.length} cards unsold
           </div>
-
-          {/* Finalize button */}
-          <div className="flex flex-col gap-2 rounded-lg border p-4 bg-muted/10">
-            {finalized ? (
-              <p className="text-sm flex items-center gap-2 text-green-700">
-                <CheckCircle2 className="h-4 w-4" />
-                Show finalized — shelf-life counters updated. A show can only be
-                finalized once.
-              </p>
-            ) : (
-              <>
-                <p className="text-sm">
-                  <strong>Finalize show</strong> to update shelf-life counters
-                  for dead inventory tracking. This can only be done once per
-                  show.
-                </p>
-                {finalizing && (
-                  <Progress value={finalizeProgress} className="h-2" />
-                )}
-                <Button
-                  size="sm"
-                  onClick={handleFinalize}
-                  disabled={finalizing}
-                  className="w-fit"
-                >
-                  {finalizing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  {finalizing ? "Finalizing…" : "Finalize Show"}
-                </Button>
-              </>
-            )}
-          </div>
         </>
       )}
 
@@ -389,7 +518,7 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
       )}
       {!diff && !pre && (
         <p className="text-sm text-muted-foreground text-center py-6">
-          Take a pre-show snapshot before the show to start tracking.
+          Complete the checklist above to track your show performance.
         </p>
       )}
     </div>

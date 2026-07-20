@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect, useTransition, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Upload,
-  Plus,
   RotateCcw,
   PenLine,
   FileSpreadsheet,
   RefreshCw,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -19,12 +19,10 @@ import {
 } from "@/lib/export/parse-csv";
 import {
   addCardAction,
-  replaceAllAction,
   rollbackImportAction,
 } from "@/actions/cards";
 import { upsertCardAction, removeStaleCardsAction, refreshPricesAction } from "@/actions/sync";
-import { searchCardsAction, type CardSuggestion } from "@/actions/autocomplete";
-import { useDebounce } from "@/lib/hooks/use-debounce";
+import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { useCurrency } from "@/components/currency-context";
 import type { CardInput } from "@/lib/types";
@@ -34,23 +32,16 @@ type Tab = "manual" | "tcgplayer" | "decktradr" | "collectr";
 const TABS: {
   id: Tab;
   label: string;
-  icon: typeof Plus;
+  icon: typeof PenLine;
   method: string;
   behavior: string;
 }[] = [
   {
-    id: "manual",
-    label: "Manual",
-    icon: PenLine,
-    method: "Add a single card by searching the catalog.",
-    behavior: "Adds one card at a time — nothing else is changed.",
-  },
-  {
-    id: "tcgplayer",
-    label: "TCGPlayer CSV",
-    icon: FileSpreadsheet,
-    method: "Upload a TCGPlayer collection export.",
-    behavior: "Adds every row to your inventory. Existing cards are untouched, and you can roll back the whole import with one click.",
+    id: "collectr",
+    label: "Collectr CSV",
+    icon: RefreshCw,
+    method: "Upload to sync — updates existing cards and adds new ones.",
+    behavior: "Matches cards by name + number: updates quantities, adds new cards, and (unless \u201cAdd only\u201d is checked) removes cards missing from the file. Prices refresh automatically afterward.",
   },
   {
     id: "decktradr",
@@ -60,11 +51,18 @@ const TABS: {
     behavior: "Adds every row to your inventory. Existing cards are untouched, and you can roll back the whole import with one click.",
   },
   {
-    id: "collectr",
-    label: "Collectr CSV",
-    icon: RefreshCw,
-    method: "Upload a Collectr export to fully sync.",
-    behavior: "Matches cards by name + number: updates quantities, adds new cards, and (unless \u201cAdd only\u201d is checked) removes cards missing from the file. Prices refresh automatically afterward.",
+    id: "tcgplayer",
+    label: "TCGPlayer CSV",
+    icon: FileSpreadsheet,
+    method: "Upload a TCGPlayer collection export.",
+    behavior: "Adds every row to your inventory. Existing cards are untouched, and you can roll back the whole import with one click.",
+  },
+  {
+    id: "manual",
+    label: "Manual",
+    icon: PenLine,
+    method: "Browse the catalog and add cards individually.",
+    behavior: "Adds one card at a time from the catalog page — nothing else is changed.",
   },
 ];
 
@@ -79,187 +77,19 @@ function readFile(file: File): Promise<string> {
 
 // ── Manual add tab ───────────────────────────────────────────────────────────
 function ManualTab() {
-  const [name, setName] = useState("");
-  const [number, setNumber] = useState("");
-  const [qty, setQty] = useState("1");
-  const [, startTransition] = useTransition();
-
-  const [suggestions, setSuggestions] = useState<CardSuggestion[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [highlightIndex, setHighlightIndex] = useState(-1);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const listboxId = "manual-name-listbox";
-
-  const debouncedName = useDebounce(name, 300);
-
-  useEffect(() => {
-    if (debouncedName.trim().length < 2) {
-      setSuggestions([]);
-      return;
-    }
-    let cancelled = false;
-    searchCardsAction(debouncedName).then((results) => {
-      if (!cancelled) {
-        setSuggestions(results);
-        setShowSuggestions(results.length > 0);
-        setHighlightIndex(-1);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [debouncedName]);
-
-  // Click-outside dismissal
-  useEffect(() => {
-    function handleMouseDown(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    }
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, []);
-
-  const selectSuggestion = useCallback((suggestion: CardSuggestion) => {
-    setName(suggestion.name);
-    setNumber(suggestion.number);
-    setSuggestions([]);
-    setShowSuggestions(false);
-    setHighlightIndex(-1);
-  }, []);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!showSuggestions || suggestions.length === 0) return;
-
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setHighlightIndex((prev) => (prev + 1) % suggestions.length);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlightIndex((prev) =>
-        prev <= 0 ? suggestions.length - 1 : prev - 1
-      );
-    } else if (e.key === "Enter" && highlightIndex >= 0) {
-      e.preventDefault();
-      selectSuggestion(suggestions[highlightIndex]);
-    } else if (e.key === "Escape") {
-      setShowSuggestions(false);
-      setHighlightIndex(-1);
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      toast.error("Card name is required");
-      return;
-    }
-    startTransition(async () => {
-      try {
-        await addCardAction({
-          name: name.trim(),
-          number: number.trim(),
-          quantity: Math.max(1, parseInt(qty, 10) || 1),
-        });
-        toast.success(`Added ${name.trim()}`);
-        setName("");
-        setNumber("");
-        setQty("1");
-        setSuggestions([]);
-        setShowSuggestions(false);
-      } catch {
-        toast.error("Failed to add card");
-      }
-    });
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4 max-w-sm">
-      <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium" htmlFor="manual-name">
-          Card Name *
-        </label>
-        <div ref={wrapperRef} className="relative">
-          <input
-            id="manual-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onFocus={() => {
-              if (suggestions.length > 0) setShowSuggestions(true);
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="e.g. Charizard EX"
-            required
-            autoComplete="off"
-            role="combobox"
-            aria-expanded={showSuggestions}
-            aria-controls={listboxId}
-            aria-activedescendant={
-              highlightIndex >= 0 ? `suggestion-${highlightIndex}` : undefined
-            }
-            className="h-9 w-full rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-          {showSuggestions && suggestions.length > 0 && (
-            <ul
-              id={listboxId}
-              role="listbox"
-              className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover text-popover-foreground shadow-md max-h-60 overflow-y-auto"
-            >
-              {suggestions.map((s, i) => (
-                <li
-                  key={`${s.name}-${s.number}`}
-                  id={`suggestion-${i}`}
-                  role="option"
-                  aria-selected={i === highlightIndex}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    selectSuggestion(s);
-                  }}
-                  onMouseEnter={() => setHighlightIndex(i)}
-                  className={cn(
-                    "flex flex-col px-3 py-2 cursor-pointer text-sm",
-                    i === highlightIndex && "bg-accent text-accent-foreground"
-                  )}
-                >
-                  <span className="font-medium">{s.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {s.number}{s.number && s.group_name ? " · " : ""}{s.group_name}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium" htmlFor="manual-number">
-          Card Number
-        </label>
-        <input
-          id="manual-number"
-          value={number}
-          onChange={(e) => setNumber(e.target.value)}
-          placeholder="e.g. 151/165"
-          className="h-9 rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium" htmlFor="manual-qty">
-          Quantity
-        </label>
-        <input
-          id="manual-qty"
-          type="number"
-          min="1"
-          value={qty}
-          onChange={(e) => setQty(e.target.value)}
-          className="h-9 w-24 rounded-md border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-      </div>
-      <Button type="submit" className="w-fit">
-        <Plus className="h-4 w-4" />
-        Add Card
+    <div className="flex flex-col gap-4 max-w-sm">
+      <p className="text-sm text-muted-foreground">
+        Browse the full catalog to find and add cards to your inventory one at a
+        time.
+      </p>
+      <Button asChild className="w-fit">
+        <Link href="/catalog">
+          Go to Catalog
+          <ArrowRight className="h-4 w-4" />
+        </Link>
       </Button>
-    </form>
+    </div>
   );
 }
 
@@ -614,16 +444,16 @@ function CollectrTab() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function ImportClient() {
-  const [activeTab, setActiveTab] = useState<Tab>("manual");
+  const [activeTab, setActiveTab] = useState<Tab>("collectr");
   const active = TABS.find((t) => t.id === activeTab)!;
 
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div>
-        <h1 className="font-heading text-xl font-semibold">Import</h1>
+        <h1 className="font-heading text-xl font-semibold">Import & Update Inventory</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Add cards one at a time, or bulk-import from a marketplace export.
+          Import new cards or re-upload a file to update quantities and sync your inventory.
         </p>
       </div>
 

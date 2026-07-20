@@ -66,6 +66,7 @@ export const EXCLUDE_PATTERNS = [
 export interface CardImageInfo {
   image_url: string | null;
   setName: string;
+  product_id: number | null;
 }
 
 // Look up catalog images (+ set name) for a user's inventory cards, matched
@@ -92,7 +93,7 @@ export async function loadCardImages(
     const batch = urls.slice(i, i + BATCH);
     const { data } = await supabase
       .from(TABLE)
-      .select("url, image_url, group_name")
+      .select("url, image_url, group_name, product_id")
       .in("url", batch);
 
     if (data) {
@@ -100,7 +101,7 @@ export async function loadCardImages(
         const ids = urlToIds.get(row.url);
         if (ids) {
           for (const id of ids) {
-            result[id] = { image_url: row.image_url, setName: row.group_name };
+            result[id] = { image_url: row.image_url, setName: row.group_name, product_id: row.product_id };
           }
         }
       }
@@ -122,6 +123,75 @@ export async function loadCardImagesCached(
     ["load-card-images", userEmail],
     { tags: [cardsTag(userEmail)], revalidate: 60 }
   )();
+}
+
+export interface InventoryChartableCard {
+  cardId: number;
+  productId: number;
+  cleanName: string;
+  groupId: number;
+  groupName: string;
+  imageUrl: string | null;
+  number: string | null;
+  marketPrice: number | null;
+}
+
+// Matches a user's inventory rows to their catalog product_id (via the
+// saved tcgplayer_url, same key used by loadCardImages) so the Charts
+// "Compare" view can offer "cards you own" as addable series. Cards
+// without a tcgplayer_url (never synced/priced) are simply omitted.
+export async function matchInventoryToCatalog(
+  cards: { id: number; tcgplayer_url: string | null }[]
+): Promise<InventoryChartableCard[]> {
+  const urlToIds = new Map<string, number[]>();
+  for (const c of cards) {
+    if (c.tcgplayer_url) {
+      const ids = urlToIds.get(c.tcgplayer_url) ?? [];
+      ids.push(c.id);
+      urlToIds.set(c.tcgplayer_url, ids);
+    }
+  }
+
+  const urls = [...urlToIds.keys()];
+  const BATCH = 100;
+  const results: InventoryChartableCard[] = [];
+  // A single url can have multiple tcg_catalog rows (e.g. Normal/Holofoil
+  // sub_type_name variants sharing the same product_id), which would
+  // otherwise produce duplicate (cardId, productId) entries — dedupe here.
+  const seen = new Set<string>();
+
+  for (let i = 0; i < urls.length; i += BATCH) {
+    const batch = urls.slice(i, i + BATCH);
+    const { data } = await supabase
+      .from(TABLE)
+      .select("url, product_id, clean_name, group_id, group_name, image_url, number, market_price")
+      .in("url", batch);
+
+    if (data) {
+      for (const row of data) {
+        const ids = urlToIds.get(row.url);
+        if (ids) {
+          for (const id of ids) {
+            const key = `${id}-${row.product_id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            results.push({
+              cardId: id,
+              productId: row.product_id,
+              cleanName: row.clean_name,
+              groupId: row.group_id,
+              groupName: row.group_name,
+              imageUrl: row.image_url ?? null,
+              number: row.number ?? null,
+              marketPrice: row.market_price != null ? Number(row.market_price) : null,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return results;
 }
 
 export async function getAllSets(): Promise<CatalogSet[]> {
