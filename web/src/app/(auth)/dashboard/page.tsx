@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { loadAllCardsCached } from "@/lib/db/cards";
 import { loadSnapshot } from "@/lib/db/label-snapshot";
-import { getLastRefreshed } from "@/lib/db/refresh-log";
 import { loadSnapshots } from "@/lib/db/collection-snapshots";
 import { listShows } from "@/lib/db/shows";
 import { loadDashboardData } from "@/lib/db/dashboard";
@@ -13,15 +12,14 @@ export default async function DashboardPage() {
   const email = session?.user?.email;
   if (!email) redirect("/login");
 
-  const [cards, snapshot, lastRefreshed, snapshots, shows] = await Promise.all([
+  const [cards, snapshot, snapshots, shows] = await Promise.all([
     loadAllCardsCached(email),
     loadSnapshot(email),
-    getLastRefreshed(email),
     loadSnapshots(email),
     listShows(email),
   ]);
 
-  const data = await loadDashboardData(cards, snapshot, lastRefreshed, snapshots, shows);
+  const data = await loadDashboardData(cards, snapshot, snapshots, shows);
 
   return <DashboardClient data={data} />;
 }

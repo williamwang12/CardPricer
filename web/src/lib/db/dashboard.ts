@@ -38,7 +38,6 @@ export interface DashboardData {
   valueBySet: SetValue[];
   gainers: Mover[];
   drops: Mover[];
-  lastRefreshed: string | null;
   history: { date: string; value: number }[];
   nextShow: NextShow | null;
 }
@@ -83,7 +82,6 @@ async function loadSetLookup(cards: Card[]): Promise<Map<number, string>> {
 export async function loadDashboardData(
   cards: Card[],
   snapshot: { downloaded_at: string; cards: SnapshotCard[] } | null,
-  lastRefreshed: Date | null,
   snapshots: Snapshot[] = [],
   shows: Show[] = []
 ): Promise<DashboardData> {
@@ -230,7 +228,6 @@ export async function loadDashboardData(
     valueBySet,
     gainers,
     drops,
-    lastRefreshed: lastRefreshed?.toISOString() ?? null,
     history,
     nextShow,
   };

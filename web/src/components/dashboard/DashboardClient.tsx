@@ -205,12 +205,6 @@ export default function DashboardClient({ data }: Props) {
           <h1 className="font-heading text-xl font-semibold">
             Your collection
           </h1>
-          {data.lastRefreshed && (
-            <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5" />
-              Prices refreshed {timeAgo(data.lastRefreshed)}
-            </p>
-          )}
         </div>
         <Button asChild>
           <Link href="/import">

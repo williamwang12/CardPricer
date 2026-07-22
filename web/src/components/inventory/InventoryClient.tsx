@@ -35,7 +35,6 @@ interface CardImageInfo {
 
 interface Props {
   initialCards: Card[];
-  lastRefreshed: string | null;
   cardImages: Record<number, CardImageInfo>;
 }
 
@@ -93,7 +92,6 @@ function EditableCell({
 
 export default function InventoryClient({
   initialCards,
-  lastRefreshed,
   cardImages,
 }: Props) {
   const { fmt } = useCurrency();
@@ -265,22 +263,6 @@ export default function InventoryClient({
                   P/L: {totalPL >= 0 ? "+" : ""}{fmt(totalPL)}
                 </span>
               </>
-            )}
-            {lastRefreshed && (
-              <span>
-                · Prices refreshed{" "}
-                {(() => {
-                  const diff = Date.now() - new Date(lastRefreshed).getTime();
-                  const h = Math.floor(diff / 3600000);
-                  const d = Math.floor(h / 24);
-                  if (d > 0) return `${d}d ago`;
-                  if (h > 0) return `${h}h ago`;
-                  return "recently";
-                })()}
-              </span>
-            )}
-            {!lastRefreshed && (
-              <span>· Prices refresh daily</span>
             )}
           </p>
         </div>
