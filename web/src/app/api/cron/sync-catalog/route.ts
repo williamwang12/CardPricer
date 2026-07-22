@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { syncAllGroups } from "@/lib/data/tcgcsv";
-import { catalogMoversTag } from "@/lib/db/catalog";
+import { catalogMoversTag, computeAndStoreMovers } from "@/lib/db/catalog";
 
 export const maxDuration = 300;
 
 export async function GET() {
   try {
     const stats = await syncAllGroups();
+    await computeAndStoreMovers();
     revalidateTag(catalogMoversTag(), "max");
     return NextResponse.json({
       ok: true,

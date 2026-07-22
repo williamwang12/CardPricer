@@ -1288,8 +1288,8 @@ function MoverTile({
           ) : (
             <ArrowDownRight className="h-3 w-3" />
           )}
-          {isUp ? "+" : "\u2212"}
-          {Math.abs(mover.deltaPct).toFixed(1)}%
+          {isUp ? "+$" : "\u2212$"}
+          {Math.abs(mover.deltaDollars).toFixed(2)}
         </span>
       </button>
       <button

@@ -41,7 +41,7 @@ export interface CatalogMover {
   url: string | null;
   oldPrice: number;
   newPrice: number;
-  deltaPct: number;
+  deltaDollars: number;
 }
 
 // Exclude non-mainline sets (promos, special products, etc.)
@@ -309,15 +309,12 @@ export async function searchCards(
   return results.slice(0, limit);
 }
 
-// Today's biggest catalog-wide gainers/drops, computed from `card_price_history`
-// (populated daily for modern mainline sets by the sync-catalog cron). Compares
-// the two most recent capture dates; returns empty arrays if fewer than two
-// dates of history exist yet.
-export async function getCatalogTopMovers(
-  limit = 8
-): Promise<{ gainers: CatalogMover[]; drops: CatalogMover[] }> {
-  const empty = { gainers: [], drops: [] };
-
+// Computes today's biggest catalog-wide gainers/drops from `card_price_history`
+// and writes them to the `catalog_top_movers` snapshot table. Called by the
+// sync-catalog cron after it finishes writing price history, so the Catalog
+// page can read pre-computed movers instantly instead of paging through the
+// full history table on every request.
+export async function computeAndStoreMovers(limit = 8): Promise<void> {
   const { data: latestRow, error: latestErr } = await supabase
     .from("card_price_history")
     .select("captured_at")
@@ -325,7 +322,7 @@ export async function getCatalogTopMovers(
     .limit(1)
     .maybeSingle();
   if (latestErr) throw latestErr;
-  if (!latestRow) return empty;
+  if (!latestRow) return;
   const latestDate = latestRow.captured_at as string;
 
   const { data: prevRow, error: prevErr } = await supabase
@@ -336,7 +333,7 @@ export async function getCatalogTopMovers(
     .limit(1)
     .maybeSingle();
   if (prevErr) throw prevErr;
-  if (!prevRow) return empty;
+  if (!prevRow) return;
   const prevDate = prevRow.captured_at as string;
 
   const PAGE = 1000;
@@ -368,7 +365,7 @@ export async function getCatalogTopMovers(
     loadPrices(prevDate),
   ]);
 
-  type Delta = { product_id: number; oldPrice: number; newPrice: number; deltaPct: number };
+  type Delta = { product_id: number; oldPrice: number; newPrice: number; deltaDollars: number };
   const deltas: Delta[] = [];
   for (const [productId, newPrice] of latestPrices) {
     const oldPrice = prevPrices.get(productId);
@@ -379,23 +376,25 @@ export async function getCatalogTopMovers(
       product_id: productId,
       oldPrice,
       newPrice,
-      deltaPct: (diff / oldPrice) * 100,
+      deltaDollars: diff,
     });
   }
 
-  deltas.sort((a, b) => b.deltaPct - a.deltaPct);
-  const gainerDeltas = deltas.filter((d) => d.deltaPct > 0).slice(0, limit);
-  const dropDeltas = deltas
-    .filter((d) => d.deltaPct < 0)
-    .slice(-limit)
-    .reverse();
+  // Sort by absolute dollar change descending
+  deltas.sort((a, b) => Math.abs(b.deltaDollars) - Math.abs(a.deltaDollars));
+  const gainerDeltas = deltas.filter((d) => d.deltaDollars > 0).slice(0, limit);
+  const dropDeltas = deltas.filter((d) => d.deltaDollars < 0).slice(0, limit);
 
+  // Filter out promo/excluded sets
   const ids = [...gainerDeltas, ...dropDeltas].map((d) => d.product_id);
-  if (ids.length === 0) return empty;
+  if (ids.length === 0) {
+    await supabase.from("catalog_top_movers").delete().gte("id", 0);
+    return;
+  }
 
   const { data: meta, error: metaErr } = await supabase
     .from(TABLE)
-    .select("product_id, clean_name, number, group_id, group_name, image_url, url")
+    .select("product_id, group_name")
     .in("product_id", ids)
     .eq("sub_type_name", "Normal");
   if (metaErr) throw metaErr;
@@ -403,32 +402,101 @@ export async function getCatalogTopMovers(
   const exclude = EXCLUDE_PATTERNS.map((p) => p.replaceAll("%", "").toLowerCase());
   const metaMap = new Map((meta ?? []).map((m) => [m.product_id, m]));
 
-  function toMovers(list: Delta[]): CatalogMover[] {
-    const result: CatalogMover[] = [];
+  function filterDeltas(list: Delta[], direction: "gainer" | "drop") {
+    const rows: { product_id: number; direction: string; old_price: number; new_price: number; delta_dollars: number }[] = [];
     for (const d of list) {
       const m = metaMap.get(d.product_id);
       if (!m) continue;
       if (exclude.some((kw) => m.group_name.toLowerCase().includes(kw))) continue;
-      result.push({
+      rows.push({
         product_id: d.product_id,
-        clean_name: m.clean_name,
-        number: m.number,
-        group_id: m.group_id,
-        group_name: m.group_name,
-        image_url: m.image_url,
-        url: m.url,
-        oldPrice: d.oldPrice,
-        newPrice: d.newPrice,
-        deltaPct: d.deltaPct,
+        direction,
+        old_price: d.oldPrice,
+        new_price: d.newPrice,
+        delta_dollars: d.deltaDollars,
       });
     }
-    return result;
+    return rows;
   }
 
-  return {
-    gainers: toMovers(gainerDeltas),
-    drops: toMovers(dropDeltas),
-  };
+  const rows = [
+    ...filterDeltas(gainerDeltas, "gainer"),
+    ...filterDeltas(dropDeltas, "drop"),
+  ];
+
+  // Replace all existing rows
+  await supabase.from("catalog_top_movers").delete().gte("id", 0);
+  if (rows.length > 0) {
+    const { error: insertErr } = await supabase.from("catalog_top_movers").insert(rows);
+    if (insertErr) throw insertErr;
+  }
+}
+
+// Today's biggest catalog-wide gainers/drops, read from the pre-computed
+// `catalog_top_movers` snapshot table (populated by `computeAndStoreMovers`
+// at the end of each sync-catalog cron run). If the table is empty (first
+// deploy before cron has run), eagerly populates it so the page works
+// immediately.
+export async function getCatalogTopMovers(): Promise<{
+  gainers: CatalogMover[];
+  drops: CatalogMover[];
+}> {
+  const empty = { gainers: [], drops: [] };
+
+  const initial = await supabase
+    .from("catalog_top_movers")
+    .select("product_id, direction, old_price, new_price, delta_dollars");
+  if (initial.error) throw initial.error;
+  let moverRows = initial.data;
+
+  // First request after deploy — table is empty, seed it now
+  if (!moverRows || moverRows.length === 0) {
+    await computeAndStoreMovers();
+    const refetch = await supabase
+      .from("catalog_top_movers")
+      .select("product_id, direction, old_price, new_price, delta_dollars");
+    if (refetch.error) throw refetch.error;
+    moverRows = refetch.data;
+    if (!moverRows || moverRows.length === 0) return empty;
+  }
+
+  const ids = moverRows.map((r) => r.product_id);
+  const { data: meta, error: metaErr } = await supabase
+    .from(TABLE)
+    .select("product_id, clean_name, number, group_id, group_name, image_url, url")
+    .in("product_id", ids)
+    .eq("sub_type_name", "Normal");
+  if (metaErr) throw metaErr;
+
+  const metaMap = new Map((meta ?? []).map((m) => [m.product_id, m]));
+
+  const gainers: CatalogMover[] = [];
+  const drops: CatalogMover[] = [];
+
+  for (const row of moverRows) {
+    const m = metaMap.get(row.product_id);
+    if (!m) continue;
+    const mover: CatalogMover = {
+      product_id: row.product_id,
+      clean_name: m.clean_name,
+      number: m.number,
+      group_id: m.group_id,
+      group_name: m.group_name,
+      image_url: m.image_url,
+      url: m.url,
+      oldPrice: Number(row.old_price),
+      newPrice: Number(row.new_price),
+      deltaDollars: Number(row.delta_dollars),
+    };
+    if (row.direction === "gainer") gainers.push(mover);
+    else drops.push(mover);
+  }
+
+  // Sort gainers by deltaDollars desc, drops by deltaDollars asc (most negative first)
+  gainers.sort((a, b) => b.deltaDollars - a.deltaDollars);
+  drops.sort((a, b) => a.deltaDollars - b.deltaDollars);
+
+  return { gainers, drops };
 }
 
 // Cache tag for the top-movers computation. This is a global (non-per-user)
@@ -442,16 +510,16 @@ export function catalogMoversTag(): string {
   return "catalog:movers";
 }
 
-// Cached wrapper for the Catalog page's "Today's Top Movers" section — the
-// underlying computation pages through the full card_price_history table for
-// two dates, so without caching every navigation back to the Cards tab would
-// re-run that full scan.
-export async function getCatalogTopMoversCached(
-  limit = 8
-): Promise<{ gainers: CatalogMover[]; drops: CatalogMover[] }> {
+// Cached wrapper for the Catalog page's "Today's Top Movers" section. The
+// underlying read from `catalog_top_movers` is already fast, but caching
+// avoids hitting Supabase on every navigation back to the Cards tab.
+export async function getCatalogTopMoversCached(): Promise<{
+  gainers: CatalogMover[];
+  drops: CatalogMover[];
+}> {
   return unstable_cache(
-    () => getCatalogTopMovers(limit),
-    ["catalog-top-movers", String(limit)],
+    () => getCatalogTopMovers(),
+    ["catalog-top-movers"],
     { tags: [catalogMoversTag()], revalidate: 3600 }
   )();
 }
