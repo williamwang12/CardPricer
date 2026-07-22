@@ -38,7 +38,10 @@ export async function uploadImage(
   ownerEmail: string,
   file: File
 ): Promise<string> {
-  const ext = (file.name.split(".").pop() || "png").toLowerCase();
+  // A filename without a dot has no extension — default to png rather than
+  // treating the whole name as the extension.
+  const parts = file.name.split(".");
+  const ext = parts.length > 1 ? parts.pop()!.toLowerCase() : "png";
   const path = `${emailKey(ownerEmail)}/avatar.${ext}`;
   const { error } = await supabase.storage.from(bucket).upload(path, file, {
     upsert: true,

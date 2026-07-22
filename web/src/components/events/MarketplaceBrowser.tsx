@@ -20,6 +20,8 @@ import type { EventListing, ListedCard } from "@/lib/types";
 interface Props {
   eventId: number;
   initialListings: EventListing[];
+  /** email -> store name, for friendlier per-vendor headers. */
+  vendorNames?: Record<string, string>;
 }
 
 interface OfferTarget {
@@ -27,7 +29,7 @@ interface OfferTarget {
   card: ListedCard;
 }
 
-export default function MarketplaceBrowser({ eventId, initialListings }: Props) {
+export default function MarketplaceBrowser({ eventId, initialListings, vendorNames = {} }: Props) {
   const { fmt } = useCurrency();
   const [search, setSearch] = useState("");
   const [target, setTarget] = useState<OfferTarget | null>(null);
@@ -113,7 +115,7 @@ export default function MarketplaceBrowser({ eventId, initialListings }: Props) 
           {filtered.map((listing) => (
             <div key={listing.id} className="rounded-lg border overflow-hidden">
               <div className="bg-muted/30 px-4 py-2 text-sm font-medium">
-                {listing.user_email}
+                {vendorNames[listing.user_email] || listing.user_email}
               </div>
               <table className="w-full text-sm">
                 <thead>

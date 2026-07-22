@@ -9,6 +9,9 @@ vi.mock("@/lib/supabase", () => ({
 import {
   getProfile,
   ensureProfile,
+  saveProfile,
+  getProfilesByEmails,
+  setOrganizer,
   sharesApprovedShow,
 } from "./profiles";
 
@@ -64,6 +67,50 @@ describe("ensureProfile", () => {
     const result = await ensureProfile("new@x.com");
     expect(result).toEqual({ user_email: "new@x.com" });
     expect(mockFrom).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("saveProfile", () => {
+  it("upserts and returns the row", async () => {
+    const row = { user_email: "a@x.com", store_name: "A" };
+    mockFrom.mockReturnValue(chainable({ data: row, error: null }));
+    expect(await saveProfile("a@x.com", { store_name: "A" })).toEqual(row);
+  });
+
+  it("throws on error", async () => {
+    mockFrom.mockReturnValue(chainable({ data: null, error: { message: "boom" } }));
+    await expect(saveProfile("a@x.com", {})).rejects.toEqual({ message: "boom" });
+  });
+});
+
+describe("getProfilesByEmails", () => {
+  it("short-circuits on an empty list without querying", async () => {
+    expect(await getProfilesByEmails([])).toEqual([]);
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it("returns the matched rows", async () => {
+    const rows = [{ user_email: "a@x.com" }, { user_email: "b@x.com" }];
+    mockFrom.mockReturnValue(chainable({ data: rows, error: null }));
+    expect(await getProfilesByEmails(["a@x.com", "b@x.com"])).toEqual(rows);
+  });
+});
+
+describe("setOrganizer", () => {
+  it("upserts the organizer flag", async () => {
+    const builder = chainable({ data: null, error: null });
+    mockFrom.mockReturnValue(builder);
+    await setOrganizer("a@x.com", true);
+    expect(mockFrom).toHaveBeenCalledWith("profiles");
+    expect((builder.upsert as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
+      expect.objectContaining({ user_email: "a@x.com", is_organizer: true }),
+      expect.anything()
+    );
+  });
+
+  it("throws on error", async () => {
+    mockFrom.mockReturnValue(chainable({ data: null, error: { message: "no" } }));
+    await expect(setOrganizer("a@x.com", false)).rejects.toEqual({ message: "no" });
   });
 });
 

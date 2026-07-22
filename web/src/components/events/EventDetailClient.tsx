@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowLeft, CalendarDays, MapPin, Users, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarDays, MapPin, Users, Save, Trash2, Star, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -15,12 +15,15 @@ import { saveListingAction, deleteListingAction } from "@/actions/marketplace";
 import MarketplaceBrowser from "@/components/events/MarketplaceBrowser";
 import OffersPanel from "@/components/events/OffersPanel";
 import OrganizerPanel from "@/components/events/OrganizerPanel";
+import VendorDirectory from "@/components/events/VendorDirectory";
 import { RegistrationBadge, STATUS_LABELS } from "@/components/events/registration-status";
 import type {
   Event,
   EventAttendee,
   EventListing,
   ListedCard,
+  ListingVisibility,
+  DirectoryVendor,
   Card,
   CardOffer,
   VenueType,
@@ -53,6 +56,7 @@ interface Props {
   myListing: EventListing | null;
   myCards: Card[];
   otherListings: EventListing[];
+  directory: DirectoryVendor[];
   initialOffers: { incoming: CardOffer[]; outgoing: CardOffer[] };
 }
 
@@ -65,6 +69,7 @@ export default function EventDetailClient({
   myListing,
   myCards,
   otherListings,
+  directory,
   initialOffers,
 }: Props) {
   const { fmt } = useCurrency();
@@ -92,6 +97,16 @@ export default function EventDetailClient({
     Object.fromEntries(
       [...initialSelection.entries()].map(([k, v]) => [k, v != null ? String(v) : ""])
     )
+  );
+  const [featured, setFeatured] = useState<Set<string>>(
+    new Set(
+      (myListing?.cards ?? [])
+        .filter((c) => c.is_featured)
+        .map((c) => `${c.name.toLowerCase()}|${c.number}`)
+    )
+  );
+  const [visibility, setVisibility] = useState<ListingVisibility>(
+    myListing?.visibility ?? "show_vendors"
   );
   const [savingListing, setSavingListing] = useState(false);
 
@@ -138,6 +153,16 @@ export default function EventDetailClient({
     });
   };
 
+  const toggleFeatured = (c: Card) => {
+    const key = cardKeyOf(c);
+    setFeatured((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const handleSaveListing = async () => {
     const cards: ListedCard[] = myCards
       .filter((c) => selected.has(cardKeyOf(c)))
@@ -150,6 +175,7 @@ export default function EventDetailClient({
           quantity: c.quantity,
           market_price: c.market_price,
           asking_price: asking ? parseFloat(asking) : null,
+          is_featured: featured.has(key),
         };
       });
 
@@ -160,7 +186,7 @@ export default function EventDetailClient({
 
     setSavingListing(true);
     try {
-      await saveListingAction(event.id, cards);
+      await saveListingAction(event.id, cards, visibility);
       toast.success(`Listing saved (${cards.length} cards)`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save listing");
@@ -268,6 +294,10 @@ export default function EventDetailClient({
         <Tabs defaultValue="listing">
           <TabsList>
             <TabsTrigger value="listing">My Listing</TabsTrigger>
+            <TabsTrigger value="vendors">
+              <Store className="h-3.5 w-3.5" />
+              Vendors ({directory.length})
+            </TabsTrigger>
             <TabsTrigger value="browse">Browse Marketplace</TabsTrigger>
             <TabsTrigger value="offers">
               Offers
@@ -299,6 +329,7 @@ export default function EventDetailClient({
                       <th className="text-right px-2 py-2 font-medium w-16">Qty</th>
                       <th className="text-right px-2 py-2 font-medium w-24">Market</th>
                       <th className="text-right px-4 py-2 font-medium w-28">Asking Price</th>
+                      <th className="text-center px-2 py-2 font-medium w-16">Feature</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -332,6 +363,24 @@ export default function EventDetailClient({
                               className="h-8 w-24 ml-auto text-right"
                             />
                           </td>
+                          <td className="px-2 py-1.5 text-center">
+                            <button
+                              type="button"
+                              disabled={!isSelected}
+                              onClick={() => toggleFeatured(c)}
+                              className="disabled:opacity-30"
+                              title="Feature this card in your showcase"
+                            >
+                              <Star
+                                className={
+                                  "h-4 w-4 mx-auto " +
+                                  (featured.has(key)
+                                    ? "fill-current text-amber-500"
+                                    : "text-muted-foreground")
+                                }
+                              />
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -339,7 +388,7 @@ export default function EventDetailClient({
                 </table>
               </div>
             )}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-3">
               <Button size="sm" onClick={handleSaveListing} disabled={savingListing}>
                 <Save className="h-4 w-4" />
                 {myListing ? "Update Listing" : "Publish Listing"}
@@ -350,11 +399,34 @@ export default function EventDetailClient({
                   Remove Listing
                 </Button>
               )}
+              <label className="flex items-center gap-2 text-sm text-muted-foreground ml-auto">
+                Visibility
+                <select
+                  value={visibility}
+                  onChange={(e) => setVisibility(e.target.value as ListingVisibility)}
+                  className="h-8 rounded-md border border-input bg-white px-2 text-sm"
+                >
+                  <option value="show_vendors">Visible to show vendors</option>
+                  <option value="hidden">Hidden</option>
+                </select>
+              </label>
             </div>
           </TabsContent>
 
+          <TabsContent value="vendors">
+            <VendorDirectory vendors={directory} />
+          </TabsContent>
+
           <TabsContent value="browse">
-            <MarketplaceBrowser eventId={event.id} initialListings={otherListings} />
+            <MarketplaceBrowser
+              eventId={event.id}
+              initialListings={otherListings}
+              vendorNames={Object.fromEntries(
+                directory
+                  .filter((d) => d.storeName)
+                  .map((d) => [d.email, d.storeName as string])
+              )}
+            />
           </TabsContent>
 
           <TabsContent value="offers">

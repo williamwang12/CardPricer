@@ -220,6 +220,16 @@ export interface ListedCard {
 
 export type ListingVisibility = "show_vendors" | "hidden";
 
+/** One approved vendor as shown in a show's vendor directory. */
+export interface DirectoryVendor {
+  email: string;
+  storeName: string | null;
+  avatarUrl: string | null;
+  specialties: string[];
+  boothLabel: string | null;
+  cards: ListedCard[];
+}
+
 export interface EventListing {
   id: number;
   event_id: number;

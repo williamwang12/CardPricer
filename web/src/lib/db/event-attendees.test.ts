@@ -6,9 +6,16 @@ vi.mock("@/lib/supabase", () => ({
   supabase: { from: mockFrom },
 }));
 
-import { applyToEvent, isApprovedAttendee } from "./event-attendees";
+import {
+  applyToEvent,
+  isApprovedAttendee,
+  reviewRegistration,
+  cancelRegistration,
+  listApprovedAttendees,
+  countApprovedAttendees,
+} from "./event-attendees";
 
-function chainable(resolveValue: { data: unknown; error: unknown }) {
+function chainable(resolveValue: { data: unknown; error: unknown; count?: number | null }) {
   const obj: Record<string, unknown> = {};
   const methods = [
     "select", "insert", "upsert", "update", "delete",
@@ -79,5 +86,62 @@ describe("applyToEvent", () => {
     const result = await applyToEvent(1, "a@x.com");
     expect(result.status).toBe("pending");
     expect(mockFrom).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("reviewRegistration", () => {
+  it("stamps status, reviewer, and booth when booth is provided", async () => {
+    const builder = chainable({ data: null, error: null });
+    mockFrom.mockReturnValue(builder);
+    await reviewRegistration(
+      1,
+      "vendor@x.com",
+      { status: "approved", booth_label: "A3" },
+      "organizer@x.com"
+    );
+    const patch = (builder.update as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(patch.status).toBe("approved");
+    expect(patch.reviewed_by).toBe("organizer@x.com");
+    expect(patch.reviewed_at).toBeTruthy();
+    expect(patch.booth_label).toBe("A3");
+  });
+
+  it("omits booth_label from the patch when it isn't provided", async () => {
+    const builder = chainable({ data: null, error: null });
+    mockFrom.mockReturnValue(builder);
+    await reviewRegistration(1, "vendor@x.com", { status: "rejected" }, "organizer@x.com");
+    const patch = (builder.update as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(patch.status).toBe("rejected");
+    expect(patch).not.toHaveProperty("booth_label");
+    expect(patch).not.toHaveProperty("organizer_notes");
+  });
+});
+
+describe("cancelRegistration", () => {
+  it("sets the status to cancelled", async () => {
+    const builder = chainable({ data: null, error: null });
+    mockFrom.mockReturnValue(builder);
+    await cancelRegistration(1, "a@x.com");
+    expect((builder.update as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith({
+      status: "cancelled",
+    });
+  });
+});
+
+describe("listApprovedAttendees / countApprovedAttendees", () => {
+  it("returns only approved rows", async () => {
+    const rows = [{ user_email: "a@x.com", status: "approved" }];
+    mockFrom.mockReturnValue(chainable({ data: rows, error: null }));
+    expect(await listApprovedAttendees(1)).toEqual(rows);
+  });
+
+  it("returns the approved count", async () => {
+    mockFrom.mockReturnValue(chainable({ data: null, error: null, count: 4 }));
+    expect(await countApprovedAttendees(1)).toBe(4);
+  });
+
+  it("counts zero when count is null", async () => {
+    mockFrom.mockReturnValue(chainable({ data: null, error: null, count: null }));
+    expect(await countApprovedAttendees(1)).toBe(0);
   });
 });

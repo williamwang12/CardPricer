@@ -33,10 +33,11 @@ async function requireAttendee(eventId: number): Promise<string> {
 
 export async function saveListingAction(
   eventId: number,
-  cards: ListedCard[]
+  cards: ListedCard[],
+  visibility: EventListing["visibility"] = "show_vendors"
 ): Promise<EventListing> {
   const email = await requireAttendee(eventId);
-  const listing = await saveListing(eventId, email, cards);
+  const listing = await saveListing(eventId, email, cards, visibility);
   revalidatePath(`/events/${eventId}`);
   return listing;
 }
