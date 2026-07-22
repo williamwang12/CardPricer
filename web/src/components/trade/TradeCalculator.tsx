@@ -8,17 +8,28 @@ import {
   Loader2,
   ArrowLeftRight,
   Scale,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useCurrency } from "@/components/currency-context";
 import { searchCardsAction } from "@/actions/catalog";
+import { signInWithGoogle } from "@/actions/auth";
 import {
   calculateTradeAction,
+  type TradeResponse,
   type TradeResult,
   type TradeSideResult,
 } from "@/actions/trade";
+import {
+  CONDITIONS,
+  DEFAULT_CONDITION,
+  conditionMultiplier,
+  conditionShort,
+  liquidityTier,
+  type Condition,
+} from "@/lib/trade";
 import type { CatalogCardSearchResult } from "@/lib/db/catalog";
 
 interface SideItem {
@@ -27,6 +38,7 @@ interface SideItem {
   number: string | null;
   imageUrl: string | null;
   marketPrice: number;
+  condition: Condition;
   quantity: number;
 }
 interface SideState {
@@ -40,6 +52,11 @@ function scoreColor(score: number): string {
   if (score >= 0.66) return "bg-emerald-500";
   if (score >= 0.4) return "bg-amber-500";
   return "bg-red-500";
+}
+
+function tierLabel(score: number): string {
+  const t = liquidityTier(score);
+  return t === "liquid" ? "Liquid" : t === "moderate" ? "Moderate" : "Illiquid";
 }
 
 function SidePanel({
@@ -63,8 +80,6 @@ function SidePanel({
     const q = debounced.trim();
     if (q.length < 2) return;
     let cancelled = false;
-    // setState only in the async callback (never synchronously in the effect
-    // body) so search results stay in sync without cascading renders.
     searchCardsAction(q)
       .then((r) => {
         if (!cancelled) {
@@ -78,7 +93,6 @@ function SidePanel({
     };
   }, [debounced]);
 
-  // A search is pending while the debounced query is catching up to the input.
   const searching = query.trim().length >= 2 && query !== debounced;
   const showResults =
     open && query.trim().length >= 2 && results.length > 0;
@@ -107,6 +121,7 @@ function SidePanel({
               number: c.number,
               imageUrl: c.image_url,
               marketPrice: c.market_price ?? 0,
+              condition: DEFAULT_CONDITION,
               quantity: 1,
             },
           ],
@@ -127,6 +142,14 @@ function SidePanel({
         .filter((i) => i.quantity > 0),
     }));
 
+  const setCondition = (productId: number, condition: Condition) =>
+    setSide((s) => ({
+      ...s,
+      items: s.items.map((i) =>
+        i.productId === productId ? { ...i, condition } : i
+      ),
+    }));
+
   const removeCard = (productId: number) =>
     setSide((s) => ({
       ...s,
@@ -134,7 +157,8 @@ function SidePanel({
     }));
 
   const cardsTotal = side.items.reduce(
-    (sum, i) => sum + i.marketPrice * i.quantity,
+    (sum, i) =>
+      sum + i.marketPrice * conditionMultiplier(i.condition) * i.quantity,
     0
   );
   const cash = parseFloat(side.cash) || 0;
@@ -214,9 +238,23 @@ function SidePanel({
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{i.name}</p>
               <p className="text-xs text-muted-foreground">
-                {fmt(i.marketPrice)} ea
+                {fmt(i.marketPrice * conditionMultiplier(i.condition))} ea
               </p>
             </div>
+            <select
+              value={i.condition}
+              onChange={(e) =>
+                setCondition(i.productId, e.target.value as Condition)
+              }
+              className="h-7 rounded border border-border bg-transparent px-1 text-xs flex-shrink-0"
+              aria-label="Condition"
+            >
+              {CONDITIONS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.short}
+                </option>
+              ))}
+            </select>
             <div className="flex items-center gap-1 flex-shrink-0">
               <button
                 onClick={() => setQty(i.productId, i.quantity - 1)}
@@ -264,9 +302,7 @@ function SidePanel({
             type="number"
             min={0}
             value={side.cash}
-            onChange={(e) =>
-              setSide((s) => ({ ...s, cash: e.target.value }))
-            }
+            onChange={(e) => setSide((s) => ({ ...s, cash: e.target.value }))}
             placeholder="0"
             className="pl-6"
           />
@@ -296,21 +332,83 @@ function SideTotals({
       <dl className="space-y-1 text-sm">
         <div className="flex justify-between text-muted-foreground">
           <dt>Cards (market)</dt>
-          <dd>{fmt(side.cardsMarket)}</dd>
-        </div>
-        <div className="flex justify-between text-muted-foreground">
-          <dt>Cards (liquidity-adj.)</dt>
-          <dd>{fmt(side.cardsEffective)}</dd>
+          <dd>{fmt(side.cardsValue)}</dd>
         </div>
         <div className="flex justify-between text-muted-foreground">
           <dt>Cash</dt>
           <dd>{fmt(side.cash)}</dd>
         </div>
         <div className="flex justify-between font-semibold pt-1 border-t border-border">
-          <dt>Effective total</dt>
-          <dd>{fmt(side.totalEffective)}</dd>
+          <dt>Total</dt>
+          <dd>{fmt(side.total)}</dd>
         </div>
+        {side.items.length > 0 && (
+          <div className="flex justify-between text-xs text-muted-foreground pt-0.5">
+            <dt>Card liquidity</dt>
+            <dd className="flex items-center gap-1">
+              <span
+                className={`h-2 w-2 rounded-full ${scoreColor(
+                  side.weightedLiquidity
+                )}`}
+              />
+              {tierLabel(side.weightedLiquidity)}
+            </dd>
+          </div>
+        )}
       </dl>
+    </div>
+  );
+}
+
+function Verdict({ result }: { result: TradeResult }) {
+  const { fmt } = useCurrency();
+  const { winner, winPct, valueDiff, sideA, sideB } = result;
+
+  let headline: string;
+  let note: string;
+
+  if (winner === "even") {
+    headline = "This looks like an even trade.";
+    const minLiq = Math.min(sideA.weightedLiquidity, sideB.weightedLiquidity);
+    note =
+      minLiq >= 0.66
+        ? "Both sides' cards move quickly, so it's a clean swap."
+        : "Values line up, but check the liquidity flags — some cards may be slower to move.";
+  } else {
+    // The winner receives the other side's cards.
+    const receivedLiq =
+      winner === "A" ? sideB.weightedLiquidity : sideA.weightedLiquidity;
+    const tier = liquidityTier(receivedLiq);
+    headline = `Side ${winner} comes out ahead by ${winPct.toFixed(
+      1
+    )}% (${fmt(valueDiff)}) on market value.`;
+    note =
+      tier === "illiquid"
+        ? `But much of what Side ${winner} receives is in slow-moving cards, so that edge may be hard to cash out — weigh whether you can actually move them before accepting.`
+        : tier === "moderate"
+        ? `The cards Side ${winner} receives have moderate liquidity, so realizing the full value may take some time.`
+        : `And the cards Side ${winner} receives sell readily, so the advantage is real and easy to realize.`;
+  }
+
+  return (
+    <div className="text-center">
+      <p className="text-lg font-heading font-semibold">
+        {winner === "even" ? (
+          headline
+        ) : (
+          <>
+            <span
+              className={
+                winner === "A" ? "text-blue-600" : "text-purple-600"
+              }
+            >
+              Side {winner}
+            </span>{" "}
+            comes out ahead by {winPct.toFixed(1)}% ({fmt(valueDiff)})
+          </>
+        )}
+      </p>
+      <p className="text-sm text-muted-foreground mt-1">{note}</p>
     </div>
   );
 }
@@ -319,23 +417,23 @@ export default function TradeCalculator() {
   const { fmt } = useCurrency();
   const [sideA, setSideA] = useState<SideState>(emptySide);
   const [sideB, setSideB] = useState<SideState>(emptySide);
-  const [result, setResult] = useState<TradeResult | null>(null);
+  const [response, setResponse] = useState<TradeResponse | null>(null);
   const [calculating, setCalculating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const canCalculate =
-    sideA.items.length + parseFloat(sideA.cash || "0") > 0 &&
-    sideB.items.length + parseFloat(sideB.cash || "0") > 0;
+    sideA.items.length + (parseFloat(sideA.cash || "0") || 0) > 0 &&
+    sideB.items.length + (parseFloat(sideB.cash || "0") || 0) > 0;
 
   const calculate = async () => {
     setCalculating(true);
-    setError(null);
+    setResponse(null);
     try {
       const res = await calculateTradeAction({
         sideA: {
           items: sideA.items.map((i) => ({
             productId: i.productId,
             quantity: i.quantity,
+            condition: i.condition,
           })),
           cash: parseFloat(sideA.cash) || 0,
         },
@@ -343,26 +441,26 @@ export default function TradeCalculator() {
           items: sideB.items.map((i) => ({
             productId: i.productId,
             quantity: i.quantity,
+            condition: i.condition,
           })),
           cash: parseFloat(sideB.cash) || 0,
         },
       });
-      setResult(res);
+      setResponse(res);
     } catch {
-      setError("Could not calculate the trade. Please try again.");
+      setResponse({ ok: false, reason: "error" });
     } finally {
       setCalculating(false);
     }
   };
 
-  // Result changes invalidate stale display
   const reset = () => {
     setSideA(emptySide());
     setSideB(emptySide());
-    setResult(null);
-    setError(null);
+    setResponse(null);
   };
 
+  const result = response?.ok ? response.result : null;
   const allItems = result
     ? [...result.sideA.items, ...result.sideB.items]
     : [];
@@ -374,9 +472,9 @@ export default function TradeCalculator() {
         <h1 className="font-heading text-xl font-semibold">Trade Calculator</h1>
       </div>
       <p className="text-sm text-muted-foreground -mt-3">
-        Values are adjusted for each card&apos;s liquidity (how actively it
-        sells) — an illiquid card counts less than its sticker price, cash
-        counts fully.
+        Compares both sides on market value (adjusted for each card&apos;s
+        condition), then flags how liquid the cards are so you know whether that
+        value is easy to realize.
       </p>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -408,39 +506,59 @@ export default function TradeCalculator() {
             </>
           )}
         </Button>
-        {(result || sideA.items.length > 0 || sideB.items.length > 0) && (
+        {(response || sideA.items.length > 0 || sideB.items.length > 0) && (
           <Button variant="ghost" onClick={reset} disabled={calculating}>
             Reset
           </Button>
         )}
-        {error && <span className="text-sm text-red-500">{error}</span>}
+        {response?.ok && (
+          <span className="text-sm text-muted-foreground">
+            {response.usage.limit - response.usage.used} of{" "}
+            {response.usage.limit} calculations left today
+          </span>
+        )}
       </div>
+
+      {/* Guest gate */}
+      {response && !response.ok && response.reason === "guest" && (
+        <div className="rounded-xl border border-border bg-card p-6 text-center flex flex-col items-center gap-3">
+          <Lock className="h-6 w-6 text-muted-foreground" />
+          <div>
+            <p className="font-heading font-semibold">
+              Sign up to use the Trade Calculator
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Create a free account to run trade calculations.
+            </p>
+          </div>
+          <form action={signInWithGoogle}>
+            <Button type="submit">Sign up with Google</Button>
+          </form>
+        </div>
+      )}
+
+      {/* Rate limit */}
+      {response && !response.ok && response.reason === "limit" && (
+        <div className="rounded-xl border border-border bg-card p-6 text-center">
+          <p className="font-heading font-semibold">Daily limit reached</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            You&apos;ve used all {response.limit} trade calculations for today.
+            Check back tomorrow.
+          </p>
+        </div>
+      )}
+
+      {/* Error */}
+      {response && !response.ok && response.reason === "error" && (
+        <p className="text-sm text-red-500">
+          Could not calculate the trade. Please try again.
+        </p>
+      )}
 
       {/* Result */}
       {result && (
         <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-4">
-          {/* Headline */}
-          <div className="text-center">
-            {result.winner === "even" ? (
-              <p className="text-lg font-heading font-semibold">
-                Even trade — within a couple percent
-              </p>
-            ) : (
-              <p className="text-lg font-heading font-semibold">
-                <span
-                  className={
-                    result.winner === "A" ? "text-blue-600" : "text-purple-600"
-                  }
-                >
-                  Side {result.winner}
-                </span>{" "}
-                is winning by {result.winPct.toFixed(1)}%
-              </p>
-            )}
-            <p className="text-sm text-muted-foreground mt-0.5">
-              on liquidity-adjusted value
-            </p>
-          </div>
+          <Verdict result={result} />
 
           {/* Fairness meter */}
           <div>
@@ -449,9 +567,8 @@ export default function TradeCalculator() {
                 className="bg-blue-500"
                 style={{
                   width: `${
-                    (result.sideA.totalEffective /
-                      (result.sideA.totalEffective +
-                        result.sideB.totalEffective || 1)) *
+                    (result.sideA.total /
+                      (result.sideA.total + result.sideB.total || 1)) *
                     100
                   }%`,
                 }}
@@ -460,17 +577,16 @@ export default function TradeCalculator() {
                 className="bg-purple-500"
                 style={{
                   width: `${
-                    (result.sideB.totalEffective /
-                      (result.sideA.totalEffective +
-                        result.sideB.totalEffective || 1)) *
+                    (result.sideB.total /
+                      (result.sideA.total + result.sideB.total || 1)) *
                     100
                   }%`,
                 }}
               />
             </div>
             <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>A · {fmt(result.sideA.totalEffective)}</span>
-              <span>B · {fmt(result.sideB.totalEffective)}</span>
+              <span>A · {fmt(result.sideA.total)}</span>
+              <span>B · {fmt(result.sideB.total)}</span>
             </div>
           </div>
 
@@ -487,7 +603,7 @@ export default function TradeCalculator() {
             />
           </div>
 
-          {/* Liquidity legend for the cards in the trade */}
+          {/* Per-card liquidity */}
           {allItems.length > 0 && (
             <div className="pt-1">
               <p className="text-xs font-medium text-muted-foreground mb-1.5">
@@ -509,8 +625,8 @@ export default function TradeCalculator() {
                     />
                     <span className="truncate max-w-[9rem]">{i.name}</span>
                     <span className="text-muted-foreground">
-                      {Math.round(i.score * 100)}%
-                      {i.source === "proxy" ? " est." : ""}
+                      {conditionShort(i.condition)} · {Math.round(i.score * 100)}
+                      %{i.source === "proxy" ? " est." : ""}
                     </span>
                   </span>
                 ))}

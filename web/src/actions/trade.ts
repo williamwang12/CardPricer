@@ -1,12 +1,14 @@
 "use server";
 
 import { auth } from "@/lib/auth";
+import { isGuestEmail } from "@/lib/guards";
 import { supabase } from "@/lib/supabase";
 import { getLiquidityScores } from "@/lib/db/liquidity";
-
-// An illiquid card counts 50% toward a trade; a perfectly liquid one 100%.
-// effectiveValue = market × (HAIRCUT_FLOOR + (1 - HAIRCUT_FLOOR) × score)
-const HAIRCUT_FLOOR = 0.5;
+import {
+  getTradeUsageToday,
+  incrementTradeUsage,
+} from "@/lib/db/trade-usage";
+import { conditionMultiplier, DAILY_TRADE_LIMIT } from "@/lib/trade";
 
 // A side is only called "even" within this fraction of the larger side.
 const EVEN_EPSILON = 0.02;
@@ -14,6 +16,7 @@ const EVEN_EPSILON = 0.02;
 export interface TradeItemInput {
   productId: number;
   quantity: number;
+  condition: string;
 }
 export interface TradeSideInput {
   items: TradeItemInput[];
@@ -29,25 +32,33 @@ export interface TradeItemResult {
   name: string;
   imageUrl: string | null;
   quantity: number;
-  marketPrice: number;
-  score: number;
+  condition: string;
+  marketPrice: number; // Near Mint market
+  conditionedPrice: number; // adjusted for condition
+  score: number; // 0..1 liquidity
   source: "sales" | "proxy";
   salesPerDay: number | null;
-  effectiveEach: number;
 }
 export interface TradeSideResult {
   items: TradeItemResult[];
   cash: number;
-  cardsMarket: number;
-  cardsEffective: number;
-  totalEffective: number;
+  cardsValue: number; // condition-adjusted market value of the cards
+  total: number; // cardsValue + cash
+  weightedLiquidity: number; // value-weighted avg liquidity of the cards (0..1)
 }
 export interface TradeResult {
   sideA: TradeSideResult;
   sideB: TradeSideResult;
   winner: "A" | "B" | "even";
-  winPct: number; // how much more effective value the winner receives
+  winPct: number; // how much more market value the winner receives
+  valueDiff: number; // absolute value difference
 }
+
+export type TradeResponse =
+  | { ok: true; result: TradeResult; usage: { used: number; limit: number } }
+  | { ok: false; reason: "guest" }
+  | { ok: false; reason: "limit"; limit: number }
+  | { ok: false; reason: "error" };
 
 interface CatalogInfo {
   marketPrice: number;
@@ -57,8 +68,8 @@ interface CatalogInfo {
 
 const VARIANT_RANK: Record<string, number> = { Holofoil: 3, Normal: 2 };
 
-// Authoritative market price (best variant) + display info per product_id,
-// mirroring loadAllCards' Holofoil > Normal > first preference.
+// Authoritative Near Mint market price (best variant) + display info per
+// product_id, mirroring loadAllCards' Holofoil > Normal > first preference.
 async function loadCatalogInfo(
   productIds: number[]
 ): Promise<Map<number, CatalogInfo>> {
@@ -98,31 +109,32 @@ function buildSide(
   liquidity: Awaited<ReturnType<typeof getLiquidityScores>>
 ): TradeSideResult {
   const items: TradeItemResult[] = [];
-  let cardsMarket = 0;
-  let cardsEffective = 0;
+  let cardsValue = 0;
+  let weightedScoreSum = 0;
 
   for (const item of side.items) {
     const info = catalog.get(item.productId);
     const liq = liquidity.get(item.productId);
     const marketPrice = info?.marketPrice ?? 0;
+    const conditionedPrice = marketPrice * conditionMultiplier(item.condition);
     const score = liq?.score ?? 0.4;
     const qty = Math.max(0, Math.floor(item.quantity));
-    const effectiveEach =
-      marketPrice * (HAIRCUT_FLOOR + (1 - HAIRCUT_FLOOR) * score);
+    const lineValue = conditionedPrice * qty;
 
-    cardsMarket += marketPrice * qty;
-    cardsEffective += effectiveEach * qty;
+    cardsValue += lineValue;
+    weightedScoreSum += lineValue * score;
 
     items.push({
       productId: item.productId,
       name: info?.name ?? `#${item.productId}`,
       imageUrl: info?.imageUrl ?? null,
       quantity: qty,
+      condition: item.condition,
       marketPrice,
+      conditionedPrice,
       score,
       source: liq?.source ?? "proxy",
       salesPerDay: liq?.salesPerDay ?? null,
-      effectiveEach,
     });
   }
 
@@ -130,17 +142,27 @@ function buildSide(
   return {
     items,
     cash,
-    cardsMarket,
-    cardsEffective,
-    totalEffective: cardsEffective + cash,
+    cardsValue,
+    total: cardsValue + cash,
+    weightedLiquidity: cardsValue > 0 ? weightedScoreSum / cardsValue : 1,
   };
 }
 
 export async function calculateTradeAction(
   input: TradeInput
-): Promise<TradeResult> {
+): Promise<TradeResponse> {
   const session = await auth();
-  if (!session?.user?.email) throw new Error("Unauthorized");
+  const email = session?.user?.email;
+  if (!email) return { ok: false, reason: "error" };
+
+  // Guests must sign up with a real account to use the calculator.
+  if (isGuestEmail(email)) return { ok: false, reason: "guest" };
+
+  // Daily rate limit.
+  const used = await getTradeUsageToday(email);
+  if (used >= DAILY_TRADE_LIMIT) {
+    return { ok: false, reason: "limit", limit: DAILY_TRADE_LIMIT };
+  }
 
   const productIds = [
     ...input.sideA.items.map((i) => i.productId),
@@ -155,17 +177,22 @@ export async function calculateTradeAction(
   const sideA = buildSide(input.sideA, catalog, liquidity);
   const sideB = buildSide(input.sideB, catalog, liquidity);
 
-  const hi = Math.max(sideA.totalEffective, sideB.totalEffective);
-  const lo = Math.min(sideA.totalEffective, sideB.totalEffective);
+  const hi = Math.max(sideA.total, sideB.total);
+  const lo = Math.min(sideA.total, sideB.total);
 
   let winner: "A" | "B" | "even";
   if (hi <= 0 || hi - lo <= hi * EVEN_EPSILON) {
     winner = "even";
   } else {
-    winner = sideA.totalEffective > sideB.totalEffective ? "A" : "B";
+    winner = sideA.total > sideB.total ? "A" : "B";
   }
-  // The winner receives this much more effective value than they give up.
   const winPct = lo > 0 ? ((hi - lo) / lo) * 100 : winner === "even" ? 0 : 100;
 
-  return { sideA, sideB, winner, winPct };
+  await incrementTradeUsage(email);
+
+  return {
+    ok: true,
+    result: { sideA, sideB, winner, winPct, valueDiff: hi - lo },
+    usage: { used: used + 1, limit: DAILY_TRADE_LIMIT },
+  };
 }
