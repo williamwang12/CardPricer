@@ -24,6 +24,7 @@ import {
   UserRound,
   ClipboardList,
   MessagesSquare,
+  Scale,
   type LucideIcon,
 } from "lucide-react";
 import { signOutAction } from "@/actions/auth";
@@ -50,6 +51,7 @@ const PRIMARY_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
 ];
 
 const MORE_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/trade", label: "Trade Calculator", icon: Scale },
   { href: "/events", label: "Events", icon: CalendarDays },
   { href: "/messages", label: "Messages", icon: MessagesSquare },
   { href: "/transactions", label: "Transactions", icon: Receipt },
