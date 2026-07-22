@@ -5,7 +5,9 @@ import { CurrencyProvider } from "@/components/currency-context";
 import { isAdmin } from "@/lib/admin";
 import { listShows } from "@/lib/db/shows";
 import { getProfile } from "@/lib/db/profiles";
+import { unreadConversationCount } from "@/lib/db/messaging";
 import { publicUrl } from "@/lib/storage";
+import { isGuestEmail } from "@/lib/guards";
 
 export default async function AuthLayout({
   children,
@@ -23,6 +25,8 @@ export default async function AuthLayout({
   const avatarUrl =
     base && profile?.updated_at ? `${base}?t=${Date.parse(profile.updated_at)}` : base;
   const canOrganize = admin || !!profile?.is_organizer;
+  const unreadCount =
+    email && !isGuestEmail(email) ? await unreadConversationCount(email) : 0;
   const allShows = email ? await listShows(email) : [];
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -40,7 +44,7 @@ export default async function AuthLayout({
   return (
     <CurrencyProvider>
       <div className="min-h-screen flex flex-col">
-        <Nav user={session.user} isAdmin={admin} canOrganize={canOrganize} avatarUrl={avatarUrl} upcomingShows={upcomingShows} />
+        <Nav user={session.user} isAdmin={admin} canOrganize={canOrganize} unreadCount={unreadCount} avatarUrl={avatarUrl} upcomingShows={upcomingShows} />
         <main className="flex-1 container mx-auto px-4 py-6 max-w-7xl w-full">
           {children}
         </main>

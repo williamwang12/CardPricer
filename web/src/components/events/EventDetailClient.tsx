@@ -414,7 +414,7 @@ export default function EventDetailClient({
           </TabsContent>
 
           <TabsContent value="vendors">
-            <VendorDirectory vendors={directory} />
+            <VendorDirectory vendors={directory} eventId={event.id} />
           </TabsContent>
 
           <TabsContent value="browse">

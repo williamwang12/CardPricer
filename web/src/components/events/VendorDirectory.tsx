@@ -4,13 +4,15 @@ import { useState } from "react";
 import Link from "next/link";
 import { UserRound, Star, ChevronDown, ExternalLink } from "lucide-react";
 import { useCurrency } from "@/components/currency-context";
+import MessageButton from "@/components/messages/MessageButton";
 import type { DirectoryVendor } from "@/lib/types";
 
 interface Props {
   vendors: DirectoryVendor[];
+  eventId: number;
 }
 
-export default function VendorDirectory({ vendors }: Props) {
+export default function VendorDirectory({ vendors, eventId }: Props) {
   const { fmt } = useCurrency();
   const [open, setOpen] = useState<Set<string>>(new Set());
 
@@ -82,6 +84,9 @@ export default function VendorDirectory({ vendors }: Props) {
                     ))}
                   </div>
                 )}
+                <div className="mt-2">
+                  <MessageButton otherEmail={v.email} eventId={eventId} />
+                </div>
               </div>
             </div>
 

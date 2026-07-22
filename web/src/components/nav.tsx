@@ -23,6 +23,7 @@ import {
   Bell,
   UserRound,
   ClipboardList,
+  MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
 import { signOutAction } from "@/actions/auth";
@@ -50,6 +51,7 @@ const PRIMARY_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
 
 const MORE_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/events", label: "Events", icon: CalendarDays },
+  { href: "/messages", label: "Messages", icon: MessagesSquare },
   { href: "/transactions", label: "Transactions", icon: Receipt },
   { href: "/dead-inventory", label: "Dead Inventory", icon: PackageX },
   { href: "/feedback", label: "Suggest Feature", icon: Lightbulb },
@@ -72,6 +74,8 @@ interface NavProps {
   isAdmin?: boolean;
   /** Admin or granted organizer — shows the "Manage Shows" link. */
   canOrganize?: boolean;
+  /** Unread-conversation count for the Messages badge. */
+  unreadCount?: number;
   /** Custom vendor-profile avatar URL; overrides the OAuth (Google) image. */
   avatarUrl?: string | null;
   upcomingShows?: UpcomingShow[];
@@ -112,7 +116,7 @@ function saveSeenShowIds(ids: Set<number>) {
   } catch { /* ignore */ }
 }
 
-export default function Nav({ user, isAdmin, canOrganize, avatarUrl, upcomingShows = [] }: NavProps) {
+export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avatarUrl, upcomingShows = [] }: NavProps) {
   const pathname = usePathname();
   // Custom vendor avatar wins over the OAuth image.
   const displayImage = avatarUrl ?? user?.image ?? null;
@@ -221,6 +225,9 @@ export default function Nav({ user, isAdmin, canOrganize, avatarUrl, upcomingSho
                 )}
               >
                 More
+                {unreadCount > 0 && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                )}
                 <ChevronDown className="h-3.5 w-3.5 transition-transform data-[state=open]:rotate-180" />
               </button>
             </DropdownMenuTrigger>
@@ -228,6 +235,7 @@ export default function Nav({ user, isAdmin, canOrganize, avatarUrl, upcomingSho
               {moreLinks.map((link) => {
                 const Icon = link.icon;
                 const active = pathname.startsWith(link.href);
+                const badge = link.href === "/messages" && unreadCount > 0;
                 return (
                   <DropdownMenuItem key={link.href} asChild>
                     <Link
@@ -236,6 +244,11 @@ export default function Nav({ user, isAdmin, canOrganize, avatarUrl, upcomingSho
                     >
                       <Icon className="h-4 w-4" />
                       {link.label}
+                      {badge && (
+                        <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                          {unreadCount}
+                        </span>
+                      )}
                     </Link>
                   </DropdownMenuItem>
                 );
@@ -382,6 +395,7 @@ export default function Nav({ user, isAdmin, canOrganize, avatarUrl, upcomingSho
           </button>
           {mobileMoreOpen && moreLinks.map((link) => {
             const Icon = link.icon;
+            const badge = link.href === "/messages" && unreadCount > 0;
             return (
               <Link
                 key={link.href}
@@ -391,6 +405,11 @@ export default function Nav({ user, isAdmin, canOrganize, avatarUrl, upcomingSho
               >
                 <Icon className="h-4 w-4" />
                 {link.label}
+                {badge && (
+                  <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                    {unreadCount}
+                  </span>
+                )}
               </Link>
             );
           })}

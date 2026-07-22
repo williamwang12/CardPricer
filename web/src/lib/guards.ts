@@ -1,8 +1,10 @@
 import { auth } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
-import { getProfile } from "@/lib/db/profiles";
+import { getProfile, sharesApprovedShow } from "@/lib/db/profiles";
 import { isApprovedAttendee } from "@/lib/db/event-attendees";
 import { getEvent } from "@/lib/db/events";
+import { isParticipant } from "@/lib/db/messaging";
+import { isBlockedBetween } from "@/lib/db/blocks";
 
 /**
  * Guest sessions get a throwaway `guest-<uuid>@cardparser.guest` email (see
@@ -67,4 +69,34 @@ export async function requireApprovedAttendee(eventId: number): Promise<string> 
   const email = await requireRealUser();
   if (await isApprovedAttendee(eventId, email)) return email;
   throw new Error("You must be an approved vendor for this show");
+}
+
+/**
+ * Whether `me` may open a conversation with `other`: a real user, sharing at
+ * least one approved show, with no block in either direction. (v1 messaging
+ * scope: shared-show vendors only.)
+ */
+export async function canMessage(me: string, other: string): Promise<boolean> {
+  if (me === other) return false;
+  if (isGuestEmail(me) || isGuestEmail(other)) return false;
+  if (await isBlockedBetween(me, other)) return false;
+  return sharesApprovedShow(me, other);
+}
+
+/** Gate for starting/continuing a conversation with another user. */
+export async function requireCanMessage(other: string): Promise<string> {
+  const email = await requireRealUser();
+  if (!(await canMessage(email, other))) {
+    throw new Error("You can only message vendors you share a show with");
+  }
+  return email;
+}
+
+/** Gate for reading/writing a conversation: a real participant only. */
+export async function requireConversationParticipant(
+  conversationId: number
+): Promise<string> {
+  const email = await requireRealUser();
+  if (await isParticipant(conversationId, email)) return email;
+  throw new Error("You are not a participant in this conversation");
 }

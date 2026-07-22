@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
 import { UserRound } from "lucide-react";
+import { auth } from "@/lib/auth";
+import { canMessage } from "@/lib/guards";
 import { getPublicProfileAction } from "@/actions/profiles";
 import { publicUrl } from "@/lib/storage";
+import MessageButton from "@/components/messages/MessageButton";
 
 const LINK_LABELS: Record<string, string> = {
   ebay: "eBay",
@@ -19,6 +22,10 @@ export default async function VendorProfilePage({
   const targetEmail = decodeURIComponent(email);
   const profile = await getPublicProfileAction(targetEmail);
   if (!profile) notFound();
+
+  const session = await auth();
+  const viewer = session?.user?.email;
+  const showMessage = viewer ? await canMessage(viewer, targetEmail) : false;
 
   const avatarUrl = publicUrl("avatars", profile.avatar_path);
   const links = Object.entries(profile.links ?? {}).filter(
@@ -44,6 +51,11 @@ export default async function VendorProfilePage({
           <h1 className="font-heading text-2xl font-bold tracking-tight truncate">
             {profile.store_name || "Vendor"}
           </h1>
+          {showMessage && (
+            <div className="mt-2">
+              <MessageButton otherEmail={targetEmail} />
+            </div>
+          )}
           {(profile.location_city || profile.location_region) && (
             <p className="text-muted-foreground mt-0.5">
               {[profile.location_city, profile.location_region]

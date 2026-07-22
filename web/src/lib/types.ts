@@ -304,6 +304,16 @@ export interface ConversationParticipant {
   last_read_at: string | null;
 }
 
+/** A conversation row enriched for the inbox list (other party + last message). */
+export interface ConversationSummary {
+  conversationId: number;
+  otherEmail: string | null;
+  otherStoreName: string | null;
+  otherAvatarUrl: string | null;
+  lastMessage: Message | null;
+  unread: number;
+}
+
 // ── Feature Suggestions ─────────────────────────────────────────────────────
 
 export interface FeatureSuggestion {

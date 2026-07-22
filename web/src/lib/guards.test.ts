@@ -1,19 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // admin.ts reads ADMIN_EMAILS from env (setup.ts → admin@example.com,boss@example.com).
-const { authMock, getProfileMock, isApprovedMock, getEventMock } = vi.hoisted(
-  () => ({
-    authMock: vi.fn(),
-    getProfileMock: vi.fn(),
-    isApprovedMock: vi.fn(),
-    getEventMock: vi.fn(),
-  })
-);
+const {
+  authMock,
+  getProfileMock,
+  sharesMock,
+  isApprovedMock,
+  getEventMock,
+  isParticipantMock,
+  isBlockedMock,
+} = vi.hoisted(() => ({
+  authMock: vi.fn(),
+  getProfileMock: vi.fn(),
+  sharesMock: vi.fn(),
+  isApprovedMock: vi.fn(),
+  getEventMock: vi.fn(),
+  isParticipantMock: vi.fn(),
+  isBlockedMock: vi.fn(),
+}));
 
 vi.mock("@/lib/auth", () => ({ auth: authMock }));
-vi.mock("@/lib/db/profiles", () => ({ getProfile: getProfileMock }));
+vi.mock("@/lib/db/profiles", () => ({
+  getProfile: getProfileMock,
+  sharesApprovedShow: sharesMock,
+}));
 vi.mock("@/lib/db/event-attendees", () => ({ isApprovedAttendee: isApprovedMock }));
 vi.mock("@/lib/db/events", () => ({ getEvent: getEventMock }));
+vi.mock("@/lib/db/messaging", () => ({ isParticipant: isParticipantMock }));
+vi.mock("@/lib/db/blocks", () => ({ isBlockedBetween: isBlockedMock }));
 
 import {
   isGuestEmail,
@@ -23,6 +37,9 @@ import {
   canManageEvent,
   requireEventOrganizer,
   requireApprovedAttendee,
+  canMessage,
+  requireCanMessage,
+  requireConversationParticipant,
 } from "./guards";
 
 /** Sets what `auth()` resolves to for the next call(s). */
@@ -33,8 +50,11 @@ function signedInAs(email: string | null) {
 beforeEach(() => {
   vi.clearAllMocks();
   getProfileMock.mockResolvedValue(null);
+  sharesMock.mockResolvedValue(false);
   isApprovedMock.mockResolvedValue(false);
   getEventMock.mockResolvedValue(null);
+  isParticipantMock.mockResolvedValue(false);
+  isBlockedMock.mockResolvedValue(false);
 });
 
 describe("isGuestEmail", () => {
@@ -144,5 +164,75 @@ describe("requireApprovedAttendee", () => {
     signedInAs("guest-1@cardparser.guest");
     await expect(requireApprovedAttendee(7)).rejects.toThrow(/Sign in/);
     expect(isApprovedMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("canMessage", () => {
+  it("allows two real vendors who share an approved show and aren't blocked", async () => {
+    isBlockedMock.mockResolvedValue(false);
+    sharesMock.mockResolvedValue(true);
+    expect(await canMessage("a@x.com", "b@x.com")).toBe(true);
+  });
+
+  it("denies messaging yourself", async () => {
+    expect(await canMessage("a@x.com", "a@x.com")).toBe(false);
+    expect(sharesMock).not.toHaveBeenCalled();
+  });
+
+  it("denies when either side is a guest", async () => {
+    expect(await canMessage("a@x.com", "guest-1@cardparser.guest")).toBe(false);
+    expect(await canMessage("guest-1@cardparser.guest", "b@x.com")).toBe(false);
+  });
+
+  it("denies when a block exists in either direction (before checking shows)", async () => {
+    isBlockedMock.mockResolvedValue(true);
+    sharesMock.mockResolvedValue(true);
+    expect(await canMessage("a@x.com", "b@x.com")).toBe(false);
+    expect(sharesMock).not.toHaveBeenCalled();
+  });
+
+  it("denies when they share no approved show", async () => {
+    isBlockedMock.mockResolvedValue(false);
+    sharesMock.mockResolvedValue(false);
+    expect(await canMessage("a@x.com", "b@x.com")).toBe(false);
+  });
+});
+
+describe("requireCanMessage", () => {
+  it("returns the caller when allowed", async () => {
+    signedInAs("a@x.com");
+    sharesMock.mockResolvedValue(true);
+    expect(await requireCanMessage("b@x.com")).toBe("a@x.com");
+  });
+
+  it("throws when a block prevents it", async () => {
+    signedInAs("a@x.com");
+    isBlockedMock.mockResolvedValue(true);
+    await expect(requireCanMessage("b@x.com")).rejects.toThrow(/share a show/);
+  });
+
+  it("throws for a guest caller", async () => {
+    signedInAs("guest-1@cardparser.guest");
+    await expect(requireCanMessage("b@x.com")).rejects.toThrow(/Sign in/);
+  });
+});
+
+describe("requireConversationParticipant", () => {
+  it("allows a participant", async () => {
+    signedInAs("a@x.com");
+    isParticipantMock.mockResolvedValue(true);
+    expect(await requireConversationParticipant(5)).toBe("a@x.com");
+  });
+
+  it("rejects a non-participant (thread privacy)", async () => {
+    signedInAs("stranger@x.com");
+    isParticipantMock.mockResolvedValue(false);
+    await expect(requireConversationParticipant(5)).rejects.toThrow(/not a participant/);
+  });
+
+  it("rejects a guest before the DB check", async () => {
+    signedInAs("guest-1@cardparser.guest");
+    await expect(requireConversationParticipant(5)).rejects.toThrow(/Sign in/);
+    expect(isParticipantMock).not.toHaveBeenCalled();
   });
 });
