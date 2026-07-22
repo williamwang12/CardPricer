@@ -10,11 +10,22 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useCurrency } from "@/components/currency-context";
-import { rsvpAction, unRsvpAction } from "@/actions/events";
+import { applyToEventAction, cancelRegistrationAction } from "@/actions/events";
 import { saveListingAction, deleteListingAction } from "@/actions/marketplace";
 import MarketplaceBrowser from "@/components/events/MarketplaceBrowser";
 import OffersPanel from "@/components/events/OffersPanel";
-import type { Event, EventListing, ListedCard, Card, CardOffer, VenueType } from "@/lib/types";
+import OrganizerPanel from "@/components/events/OrganizerPanel";
+import { RegistrationBadge, STATUS_LABELS } from "@/components/events/registration-status";
+import type {
+  Event,
+  EventAttendee,
+  EventListing,
+  ListedCard,
+  Card,
+  CardOffer,
+  VenueType,
+  RegistrationStatus,
+} from "@/lib/types";
 
 const VENUE_LABELS: Record<VenueType, string> = {
   collector_show: "Collector Show",
@@ -35,8 +46,10 @@ function formatDate(dateStr: string) {
 
 interface Props {
   event: Event;
-  attending: boolean;
-  attendeeCount: number;
+  registration: EventAttendee | null;
+  approvedCount: number;
+  canManage: boolean;
+  registrations: EventAttendee[];
   myListing: EventListing | null;
   myCards: Card[];
   otherListings: EventListing[];
@@ -45,15 +58,24 @@ interface Props {
 
 export default function EventDetailClient({
   event,
-  attending: initialAttending,
-  attendeeCount,
+  registration,
+  approvedCount,
+  canManage,
+  registrations,
   myListing,
   myCards,
   otherListings,
   initialOffers,
 }: Props) {
   const { fmt } = useCurrency();
-  const [attending, setAttending] = useState(initialAttending);
+  // An active registration is anything not cancelled.
+  const activeStatus =
+    registration && registration.status !== "cancelled"
+      ? registration.status
+      : null;
+  const [status, setStatus] = useState<RegistrationStatus | null>(activeStatus);
+  const approved = status === "approved";
+  const [applyNote, setApplyNote] = useState("");
   const [rsvpBusy, setRsvpBusy] = useState(false);
 
   // Listing editor state: card key -> { selected, askingPrice }
@@ -73,24 +95,33 @@ export default function EventDetailClient({
   );
   const [savingListing, setSavingListing] = useState(false);
 
-  const toggleRsvp = async () => {
+  const apply = async () => {
     setRsvpBusy(true);
     try {
-      if (attending) {
-        if (!confirm("Cancel attendance? This will remove your listing and offers for this event.")) {
-          setRsvpBusy(false);
-          return;
-        }
-        await unRsvpAction(event.id);
-        setAttending(false);
-        toast.success("Attendance cancelled");
-      } else {
-        await rsvpAction(event.id);
-        setAttending(true);
-        toast.success("You're going!");
-      }
+      const reg = await applyToEventAction(event.id, applyNote.trim() || null);
+      setStatus(reg.status);
+      setApplyNote("");
+      toast.success("Application submitted — pending review");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update RSVP");
+      toast.error(err instanceof Error ? err.message : "Failed to apply");
+    }
+    setRsvpBusy(false);
+  };
+
+  const withdraw = async () => {
+    if (
+      !confirm(
+        "Withdraw from this show? This removes your listing and offers for it."
+      )
+    )
+      return;
+    setRsvpBusy(true);
+    try {
+      await cancelRegistrationAction(event.id);
+      setStatus(null);
+      toast.success("Withdrawn from show");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to withdraw");
     }
     setRsvpBusy(false);
   };
@@ -173,18 +204,19 @@ export default function EventDetailClient({
             )}
             <span className="flex items-center gap-1.5">
               <Users className="h-3.5 w-3.5" />
-              {attendeeCount} attending
+              {approvedCount} approved
             </span>
             <Badge variant="outline">{VENUE_LABELS[event.venue_type]}</Badge>
+            {status && <RegistrationBadge status={status} />}
           </div>
         </div>
-        <Button
-          variant={attending ? "outline" : "default"}
-          disabled={rsvpBusy}
-          onClick={toggleRsvp}
-        >
-          {attending ? "Cancel Attendance" : "I'm Going"}
-        </Button>
+        {/* Vendors apply/withdraw; organizers manage instead of applying. */}
+        {!canManage &&
+          (status === "pending" || status === "waitlisted" || status === "approved" ? (
+            <Button variant="outline" disabled={rsvpBusy} onClick={withdraw}>
+              Withdraw
+            </Button>
+          ) : null)}
       </div>
 
       {event.description && (
@@ -193,11 +225,44 @@ export default function EventDetailClient({
         </p>
       )}
 
-      {!attending ? (
-        <div className="rounded-lg border py-12 text-center">
-          <p className="text-sm text-muted-foreground">
-            RSVP to this event to list cards and browse the marketplace.
-          </p>
+      {canManage ? (
+        <OrganizerPanel
+          eventId={event.id}
+          vendorCapacity={event.vendor_capacity}
+          initialRegistrations={registrations}
+        />
+      ) : !approved ? (
+        <div className="rounded-lg border p-6 flex flex-col items-center gap-3 text-center">
+          {status ? (
+            <p className="text-sm text-muted-foreground">
+              Your application is <strong>{STATUS_LABELS[status].toLowerCase()}</strong>.
+              {status === "pending" &&
+                " The organizer will review it. You'll get showcase access once approved."}
+              {status === "waitlisted" &&
+                " You'll get access if a spot opens up."}
+              {status === "rejected" &&
+                " You can apply again if you'd like."}
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Apply to sell at this show to build a showcase and browse other
+                vendors&apos; showcases once approved.
+              </p>
+              <textarea
+                value={applyNote}
+                onChange={(e) => setApplyNote(e.target.value)}
+                placeholder="Optional note to the organizer (what you're bringing, booth needs…)"
+                rows={2}
+                className="w-full max-w-md rounded-md border border-input bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </>
+          )}
+          {(!status || status === "rejected") && (
+            <Button disabled={rsvpBusy} onClick={apply}>
+              Apply to sell
+            </Button>
+          )}
         </div>
       ) : (
         <Tabs defaultValue="listing">
@@ -217,7 +282,7 @@ export default function EventDetailClient({
           <TabsContent value="listing" className="flex flex-col gap-3">
             <p className="text-sm text-muted-foreground">
               Select which cards from your inventory you&apos;re bringing to this show.
-              Only vendors attending this event can see your listing.
+              Only approved vendors at this show can see your listing.
             </p>
             {myCards.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">

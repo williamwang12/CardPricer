@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
-import { isAttendee } from "@/lib/db/event-attendees";
+import { requireApprovedAttendee } from "@/lib/guards";
 import {
   saveListing,
   getMyListing,
@@ -24,12 +24,9 @@ async function getUserEmail(): Promise<string> {
   return session.user.email;
 }
 
-/** Every marketplace action requires the caller to have RSVP'd to the event. */
+/** Every marketplace action requires an approved registration for the event. */
 async function requireAttendee(eventId: number): Promise<string> {
-  const email = await getUserEmail();
-  const attending = await isAttendee(eventId, email);
-  if (!attending) throw new Error("You must RSVP to this event first");
-  return email;
+  return requireApprovedAttendee(eventId);
 }
 
 // ── My listing ───────────────────────────────────────────────────────────────

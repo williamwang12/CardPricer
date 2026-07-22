@@ -8,6 +8,7 @@ function rowToListing(row: {
   event_id: number;
   user_email: string;
   cards_json: string;
+  visibility?: string | null;
   updated_at: string;
 }): EventListing {
   return {
@@ -15,6 +16,8 @@ function rowToListing(row: {
     event_id: row.event_id,
     user_email: row.user_email,
     cards: JSON.parse(row.cards_json) as ListedCard[],
+    // Column added in the vendor-network migration; default for legacy rows.
+    visibility: row.visibility === "hidden" ? "hidden" : "show_vendors",
     updated_at: row.updated_at,
   };
 }
@@ -23,7 +26,8 @@ function rowToListing(row: {
 export async function saveListing(
   eventId: number,
   userEmail: string,
-  cards: ListedCard[]
+  cards: ListedCard[],
+  visibility: EventListing["visibility"] = "show_vendors"
 ): Promise<EventListing> {
   const { data, error } = await supabase
     .from(TABLE)
@@ -32,6 +36,7 @@ export async function saveListing(
         event_id: eventId,
         user_email: userEmail,
         cards_json: JSON.stringify(cards),
+        visibility,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "event_id,user_email" }

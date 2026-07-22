@@ -3,11 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { CalendarDays, MapPin, Check } from "lucide-react";
+import { CalendarDays, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { rsvpAction, unRsvpAction } from "@/actions/events";
-import type { Event, VenueType } from "@/lib/types";
+import { applyToEventAction, cancelRegistrationAction } from "@/actions/events";
+import { RegistrationBadge } from "@/components/events/registration-status";
+import type { Event, VenueType, RegistrationStatus } from "@/lib/types";
 
 const VENUE_LABELS: Record<VenueType, string> = {
   collector_show: "Collector Show",
@@ -28,31 +28,38 @@ function formatDate(dateStr: string) {
 
 interface Props {
   initialEvents: Event[];
-  attendingEventIds: number[];
+  statusByEvent: Record<number, RegistrationStatus>;
 }
 
-export default function EventsClient({ initialEvents, attendingEventIds }: Props) {
-  const [attending, setAttending] = useState(new Set(attendingEventIds));
+export default function EventsClient({ initialEvents, statusByEvent }: Props) {
+  const [statuses, setStatuses] =
+    useState<Record<number, RegistrationStatus>>(statusByEvent);
   const [pending, setPending] = useState<number | null>(null);
 
-  const toggleRsvp = async (event: Event) => {
+  const apply = async (event: Event) => {
     setPending(event.id);
     try {
-      if (attending.has(event.id)) {
-        await unRsvpAction(event.id);
-        setAttending((prev) => {
-          const next = new Set(prev);
-          next.delete(event.id);
-          return next;
-        });
-        toast.success(`Cancelled attendance for "${event.name}"`);
-      } else {
-        await rsvpAction(event.id);
-        setAttending((prev) => new Set(prev).add(event.id));
-        toast.success(`You're going to "${event.name}"`);
-      }
+      const reg = await applyToEventAction(event.id);
+      setStatuses((prev) => ({ ...prev, [event.id]: reg.status }));
+      toast.success(`Applied to "${event.name}" — pending review`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update RSVP");
+      toast.error(err instanceof Error ? err.message : "Failed to apply");
+    }
+    setPending(null);
+  };
+
+  const withdraw = async (event: Event) => {
+    setPending(event.id);
+    try {
+      await cancelRegistrationAction(event.id);
+      setStatuses((prev) => {
+        const next = { ...prev };
+        delete next[event.id];
+        return next;
+      });
+      toast.success(`Withdrew from "${event.name}"`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to withdraw");
     }
     setPending(null);
   };
@@ -60,31 +67,27 @@ export default function EventsClient({ initialEvents, attendingEventIds }: Props
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="font-heading text-xl font-semibold">Events</h1>
+        <h1 className="font-heading text-xl font-semibold">Shows</h1>
       </div>
 
       {initialEvents.length === 0 ? (
         <div className="rounded-lg border py-12 text-center">
           <p className="text-sm text-muted-foreground">
-            No upcoming events yet. Check back soon.
+            No upcoming shows yet. Check back soon.
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {initialEvents.map((event) => {
-            const isAttending = attending.has(event.id);
+            const status = statuses[event.id];
+            const busy = pending === event.id;
             return (
               <div key={event.id} className="rounded-lg border p-4 flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-2">
                   <Link href={`/events/${event.id}`} className="font-semibold hover:underline">
                     {event.name}
                   </Link>
-                  {isAttending && (
-                    <Badge variant="secondary" className="flex items-center gap-1 flex-shrink-0">
-                      <Check className="h-3 w-3" />
-                      Going
-                    </Badge>
-                  )}
+                  {status && <RegistrationBadge status={status} />}
                 </div>
                 <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1.5">
@@ -106,14 +109,24 @@ export default function EventsClient({ initialEvents, attendingEventIds }: Props
                   </p>
                 )}
                 <div className="flex items-center gap-2 mt-auto pt-2">
-                  <Button
-                    size="sm"
-                    variant={isAttending ? "outline" : "default"}
-                    disabled={pending === event.id}
-                    onClick={() => toggleRsvp(event)}
-                  >
-                    {isAttending ? "Cancel" : "I'm Going"}
-                  </Button>
+                  {!status || status === "rejected" ? (
+                    <Button size="sm" disabled={busy} onClick={() => apply(event)}>
+                      Apply to sell
+                    </Button>
+                  ) : status === "approved" ? (
+                    <Link href={`/events/${event.id}`}>
+                      <Button size="sm">Open showcase</Button>
+                    </Link>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => withdraw(event)}
+                    >
+                      Withdraw
+                    </Button>
+                  )}
                   <Link href={`/events/${event.id}`}>
                     <Button size="sm" variant="ghost">
                       View

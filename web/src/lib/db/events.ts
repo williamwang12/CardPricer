@@ -1,11 +1,12 @@
 import { supabase } from "@/lib/supabase";
-import type { Event, EventInput } from "@/lib/types";
+import type { Event, EventInput, EventStatus } from "@/lib/types";
 
 const TABLE = "events";
 
 export async function createEvent(
   event: EventInput,
-  createdBy: string
+  createdBy: string,
+  status: EventStatus = "published"
 ): Promise<Event> {
   const { data, error } = await supabase
     .from(TABLE)
@@ -17,13 +18,54 @@ export async function createEvent(
       venue_address: event.venue_address ?? null,
       venue_type: event.venue_type,
       description: event.description ?? null,
-      published: event.published ?? true,
+      status,
+      // Keep the legacy boolean in sync for any older reads.
+      published: status === "published" || status === "live",
       created_by: createdBy,
     })
     .select()
     .single();
   if (error) throw error;
   return data;
+}
+
+/** Admin sets a show's review outcome (approve → published, reject → rejected). */
+export async function setShowStatus(
+  eventId: number,
+  status: EventStatus,
+  reviewNote?: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from(TABLE)
+    .update({
+      status,
+      published: status === "published" || status === "live",
+      review_note: reviewNote ?? null,
+    })
+    .eq("id", eventId);
+  if (error) throw error;
+}
+
+/** Shows awaiting admin approval — the admin review queue. */
+export async function listPendingShows(): Promise<Event[]> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("*")
+    .eq("status", "pending_approval")
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** All shows created by one organizer (any status) — their "my shows" view. */
+export async function listShowsByCreator(email: string): Promise<Event[]> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("*")
+    .eq("created_by", email)
+    .order("date", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function updateEvent(
@@ -59,12 +101,12 @@ export async function listAllEvents(): Promise<Event[]> {
   return data ?? [];
 }
 
-/** Published events only — what vendors browse. */
+/** Public shows only — what vendors browse (approved + live, never pending). */
 export async function listPublishedEvents(): Promise<Event[]> {
   const { data, error } = await supabase
     .from(TABLE)
     .select("*")
-    .eq("published", true)
+    .in("status", ["published", "live"])
     .order("date", { ascending: false });
   if (error) throw error;
   return data ?? [];

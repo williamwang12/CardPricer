@@ -21,6 +21,8 @@ import {
   ShieldCheck,
   LogOut,
   Bell,
+  UserRound,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import { signOutAction } from "@/actions/auth";
@@ -68,6 +70,10 @@ interface NavProps {
     image?: string | null;
   } | null;
   isAdmin?: boolean;
+  /** Admin or granted organizer — shows the "Manage Shows" link. */
+  canOrganize?: boolean;
+  /** Custom vendor-profile avatar URL; overrides the OAuth (Google) image. */
+  avatarUrl?: string | null;
   upcomingShows?: UpcomingShow[];
 }
 
@@ -106,8 +112,10 @@ function saveSeenShowIds(ids: Set<number>) {
   } catch { /* ignore */ }
 }
 
-export default function Nav({ user, isAdmin, upcomingShows = [] }: NavProps) {
+export default function Nav({ user, isAdmin, canOrganize, avatarUrl, upcomingShows = [] }: NavProps) {
   const pathname = usePathname();
+  // Custom vendor avatar wins over the OAuth image.
+  const displayImage = avatarUrl ?? user?.image ?? null;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const { currency, setCurrency } = useCurrency();
@@ -129,13 +137,20 @@ export default function Nav({ user, isAdmin, upcomingShows = [] }: NavProps) {
     setUnseenCount(0);
   }, [upcomingShows]);
 
-  const moreLinks = isAdmin
-    ? [...MORE_LINKS, { href: "/admin/events", label: "Admin", icon: ShieldCheck }]
-    : MORE_LINKS;
+  const organizeLink = { href: "/events/manage", label: "Manage Shows", icon: ClipboardList };
+  const adminLink = { href: "/admin/events", label: "Admin", icon: ShieldCheck };
 
-  const allLinks = isAdmin
-    ? [...ALL_LINKS, { href: "/admin/events", label: "Admin", icon: ShieldCheck }]
-    : ALL_LINKS;
+  const moreLinks = [
+    ...MORE_LINKS,
+    ...(canOrganize ? [organizeLink] : []),
+    ...(isAdmin ? [adminLink] : []),
+  ];
+
+  const allLinks = [
+    ...ALL_LINKS,
+    ...(canOrganize ? [organizeLink] : []),
+    ...(isAdmin ? [adminLink] : []),
+  ];
 
   const moreIsActive = moreLinks.some((link) => pathname.startsWith(link.href));
 
@@ -276,11 +291,11 @@ export default function Nav({ user, isAdmin, upcomingShows = [] }: NavProps) {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2 rounded-full pl-1 pr-2 py-1 outline-none hover:bg-muted transition-colors">
-                  {user.image ? (
+                  {displayImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={user.image}
-                      className="w-7 h-7 rounded-full ring-1 ring-border"
+                      src={displayImage}
+                      className="w-7 h-7 rounded-full object-cover ring-1 ring-border"
                       alt={user.name ?? ""}
                     />
                   ) : (
@@ -299,6 +314,12 @@ export default function Nav({ user, isAdmin, upcomingShows = [] }: NavProps) {
                   </span>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/profile">
+                    <UserRound className="h-4 w-4" />
+                    Edit profile
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => {
                     void signOutAction();
@@ -403,12 +424,16 @@ export default function Nav({ user, isAdmin, upcomingShows = [] }: NavProps) {
           <div className="mt-2 pt-2 border-t border-border flex items-center justify-between gap-3">
             {user ? (
               <>
-                <div className="flex items-center gap-2 min-w-0">
-                  {user.image ? (
+                <Link
+                  href="/profile"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-2 min-w-0"
+                >
+                  {displayImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={user.image}
-                      className="w-7 h-7 rounded-full flex-shrink-0 ring-1 ring-border"
+                      src={displayImage}
+                      className="w-7 h-7 rounded-full object-cover flex-shrink-0 ring-1 ring-border"
                       alt={user.name ?? ""}
                     />
                   ) : (
@@ -419,7 +444,7 @@ export default function Nav({ user, isAdmin, upcomingShows = [] }: NavProps) {
                   <span className="text-sm text-muted-foreground truncate">
                     {user.name ?? user.email}
                   </span>
-                </div>
+                </Link>
                 <form action={signOutAction}>
                   <button
                     type="submit"

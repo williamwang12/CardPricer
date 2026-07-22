@@ -4,6 +4,8 @@ import Nav from "@/components/nav";
 import { CurrencyProvider } from "@/components/currency-context";
 import { isAdmin } from "@/lib/admin";
 import { listShows } from "@/lib/db/shows";
+import { getProfile } from "@/lib/db/profiles";
+import { publicUrl } from "@/lib/storage";
 
 export default async function AuthLayout({
   children,
@@ -14,6 +16,13 @@ export default async function AuthLayout({
   if (!session?.user) redirect("/login");
 
   const email = session.user.email;
+  const admin = isAdmin(email);
+  // One profile read powers both the nav avatar and the organizer link.
+  const profile = email ? await getProfile(email) : null;
+  const base = publicUrl("avatars", profile?.avatar_path ?? null);
+  const avatarUrl =
+    base && profile?.updated_at ? `${base}?t=${Date.parse(profile.updated_at)}` : base;
+  const canOrganize = admin || !!profile?.is_organizer;
   const allShows = email ? await listShows(email) : [];
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -31,7 +40,7 @@ export default async function AuthLayout({
   return (
     <CurrencyProvider>
       <div className="min-h-screen flex flex-col">
-        <Nav user={session.user} isAdmin={isAdmin(session.user.email)} upcomingShows={upcomingShows} />
+        <Nav user={session.user} isAdmin={admin} canOrganize={canOrganize} avatarUrl={avatarUrl} upcomingShows={upcomingShows} />
         <main className="flex-1 container mx-auto px-4 py-6 max-w-7xl w-full">
           {children}
         </main>
