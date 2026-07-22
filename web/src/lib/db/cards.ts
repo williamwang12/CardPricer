@@ -37,6 +37,61 @@ export async function loadAllCards(userEmail: string): Promise<Card[]> {
     from += PAGE;
   }
 
+  // Overlay live prices from tcg_catalog for non-manual-price cards.
+  // The sync-catalog cron keeps tcg_catalog current daily from tcgcsv;
+  // reading prices directly from the catalog (rather than a copy stored on
+  // cards.market_price) ensures they are always fresh.
+  const urlToIndices = new Map<string, number[]>();
+  for (let i = 0; i < rows.length; i++) {
+    const card = rows[i];
+    if (!card.manual_price && card.tcgplayer_url) {
+      const indices = urlToIndices.get(card.tcgplayer_url) ?? [];
+      indices.push(i);
+      urlToIndices.set(card.tcgplayer_url, indices);
+    }
+  }
+
+  const urls = [...urlToIndices.keys()];
+  const BATCH = 100;
+
+  for (let i = 0; i < urls.length; i += BATCH) {
+    const batch = urls.slice(i, i + BATCH);
+    const { data: catalogRows } = await supabase
+      .from("tcg_catalog")
+      .select("url, market_price, sub_type_name")
+      .in("url", batch);
+
+    if (catalogRows) {
+      // Group catalog rows by URL, then pick best variant per URL
+      const byUrl = new Map<string, typeof catalogRows>();
+      for (const row of catalogRows) {
+        const group = byUrl.get(row.url) ?? [];
+        group.push(row);
+        byUrl.set(row.url, group);
+      }
+
+      for (const [url, variants] of byUrl) {
+        // Holofoil > Normal > first row (same logic as pickBestVariant)
+        const best =
+          variants.find((r) => r.sub_type_name === "Holofoil") ??
+          variants.find((r) => r.sub_type_name === "Normal") ??
+          variants[0];
+
+        const price =
+          best.market_price != null
+            ? Math.round(Number(best.market_price) * 100) / 100
+            : null;
+
+        const indices = urlToIndices.get(url);
+        if (indices) {
+          for (const idx of indices) {
+            rows[idx] = { ...rows[idx], market_price: price };
+          }
+        }
+      }
+    }
+  }
+
   return rows;
 }
 
