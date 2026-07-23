@@ -116,7 +116,7 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
       await finalizeShowAction(show.id);
       setFinalizeProgress(100);
       setFinalized(true);
-      toast.success("Show finalized — shelf-life counters updated");
+      toast.success("Show finalized, shelf-life counters updated");
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to finalize show"
@@ -243,7 +243,7 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
       id: "finalize",
       title: "Finalize show",
       description: finalized
-        ? "Show finalized — shelf-life counters have been updated."
+        ? "Show finalized. Shelf-life counters have been updated."
         : "Finalize to update shelf-life counters for dead inventory tracking. This can only be done once.",
       done: finalized,
       doneLabel: "Finalized",

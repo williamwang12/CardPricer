@@ -148,7 +148,7 @@ export default function AdminEventsClient({ initialEvents }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="font-heading text-xl font-semibold">Admin — Events</h1>
+        <h1 className="font-heading text-xl font-semibold">Admin: Events</h1>
         <Button size="sm" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           New Event

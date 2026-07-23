@@ -176,7 +176,7 @@ export default async function LoginPage() {
                   See what changed since your last export
                 </h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  The real pain isn&apos;t pricing once — it&apos;s re-pricing.
+                  The real pain isn&apos;t pricing once, it&apos;s re-pricing.
                   CardParser diffs your inventory against your last export so you
                   only print labels for what actually moved. Fewer stickers, less
                   waste, faster setup at the table.
@@ -313,7 +313,7 @@ export default async function LoginPage() {
               Everything else you need
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
-              Beyond pricing — tools to run your card business.
+              Beyond pricing: tools to run your card business.
             </p>
 
             <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -330,7 +330,7 @@ export default async function LoginPage() {
               <FeatureCard
                 icon={<LayoutDashboard className="h-5 w-5" />}
                 title="Dashboard"
-                body="See your total collection value, top movers, biggest gainers and drops — all at a glance. Portfolio value tracked daily."
+                body="See your total collection value, top movers, biggest gainers and drops, all at a glance. Portfolio value tracked daily."
               />
               <FeatureCard
                 icon={<PackageX className="h-5 w-5" />}

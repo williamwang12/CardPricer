@@ -41,7 +41,7 @@ export default function EventsClient({ initialEvents, statusByEvent }: Props) {
     try {
       const reg = await applyToEventAction(event.id);
       setStatuses((prev) => ({ ...prev, [event.id]: reg.status }));
-      toast.success(`Applied to "${event.name}" — pending review`);
+      toast.success(`Applied to "${event.name}", pending review`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to apply");
     }

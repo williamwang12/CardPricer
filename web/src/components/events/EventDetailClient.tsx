@@ -116,7 +116,7 @@ export default function EventDetailClient({
       const reg = await applyToEventAction(event.id, applyNote.trim() || null);
       setStatus(reg.status);
       setApplyNote("");
-      toast.success("Application submitted — pending review");
+      toast.success("Application submitted, pending review");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to apply");
     }

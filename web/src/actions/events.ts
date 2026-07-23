@@ -238,7 +238,7 @@ export async function reviewRegistrationAction(
       current?.status !== "approved" &&
       (await countApprovedAttendees(eventId)) >= event.vendor_capacity
     ) {
-      throw new Error("Show is at vendor capacity — waitlist instead");
+      throw new Error("Show is at vendor capacity, waitlist instead");
     }
   }
   await reviewRegistration(eventId, vendorEmail, input, reviewer);

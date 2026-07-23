@@ -237,7 +237,7 @@ export default function InventoryClient({
           }
           if (res.limited) {
             toast(
-              "Daily price-lookup limit reached (10/day) — showing an estimate. The real price updates overnight."
+              "Daily price-lookup limit reached (10/day). Showing an estimate. The real price updates overnight."
             );
           }
         } catch {

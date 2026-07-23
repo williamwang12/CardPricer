@@ -40,7 +40,7 @@ const TABS: {
     id: "collectr",
     label: "Collectr CSV",
     icon: RefreshCw,
-    method: "Upload to sync — updates existing cards and adds new ones.",
+    method: "Upload to sync: updates existing cards and adds new ones.",
     behavior: "Matches cards by name + number: updates quantities, adds new cards, and (unless \u201cAdd only\u201d is checked) removes cards missing from the file. Prices refresh automatically afterward.",
   },
   {
@@ -62,7 +62,7 @@ const TABS: {
     label: "Manual",
     icon: PenLine,
     method: "Browse the catalog and add cards individually.",
-    behavior: "Adds one card at a time from the catalog page — nothing else is changed.",
+    behavior: "Adds one card at a time from the catalog page. Nothing else is changed.",
   },
 ];
 

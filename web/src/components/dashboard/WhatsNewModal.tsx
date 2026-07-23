@@ -30,7 +30,7 @@ const FEATURES: Feature[] = [
   {
     icon: Tag,
     title: "Condition your cards",
-    body: "Grade each card by condition and pull the exact TCGplayer price for that grade — no more estimating off Near Mint.",
+    body: "Grade each card by condition and pull the exact TCGplayer price for that grade. No more estimating off Near Mint.",
     href: "/inventory",
     cta: "Go to inventory",
     accent: "bg-emerald-500/10 text-emerald-600",

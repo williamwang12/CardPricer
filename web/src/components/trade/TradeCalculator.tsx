@@ -402,10 +402,10 @@ function Decision({ result }: { result: TradeResult }) {
           const tier = liquidityTier(result.get.weightedLiquidity);
           const text =
             tier === "liquid"
-              ? "The cards you'd take in sell readily — easy to move."
+              ? "The cards you'd take in sell readily, easy to move."
               : tier === "moderate"
-              ? "The cards you'd take in have moderate liquidity — expect some time to resell."
-              : "Heads up: the cards you'd take in are slow movers, so even at this margin they may sit in your case — factor in resale risk.";
+              ? "The cards you'd take in have moderate liquidity, so expect some time to resell."
+              : "Heads up: the cards you'd take in are slow movers, so even at this margin they may sit in your case, so factor in resale risk.";
           return (
             <p
               className={`text-sm ${
@@ -655,7 +655,7 @@ export default function TradeCalculator() {
                 ))}
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Liquidity = recent TCGplayer sales velocity — a check on whether
+                Liquidity = recent TCGplayer sales velocity, a check on whether
                 you can actually move the cards you take in.
               </p>
             </div>
