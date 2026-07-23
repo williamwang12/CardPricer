@@ -59,7 +59,14 @@ const MORE_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/feedback", label: "Suggest Feature", icon: Lightbulb },
 ];
 
-const ALL_LINKS = [...PRIMARY_LINKS, ...MORE_LINKS];
+// Temporarily hidden from the nav while these features are half-baked.
+// Restore an item by removing its href from this set.
+const HIDDEN_MORE_HREFS = new Set<string>(["/events", "/messages", "/feedback"]);
+const VISIBLE_MORE_LINKS = MORE_LINKS.filter(
+  (l) => !HIDDEN_MORE_HREFS.has(l.href)
+);
+
+const ALL_LINKS = [...PRIMARY_LINKS, ...VISIBLE_MORE_LINKS];
 
 interface UpcomingShow {
   id: number;
@@ -147,7 +154,7 @@ export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avata
   const adminLink = { href: "/admin/events", label: "Admin", icon: ShieldCheck };
 
   const moreLinks = [
-    ...MORE_LINKS,
+    ...VISIBLE_MORE_LINKS,
     ...(canOrganize ? [organizeLink] : []),
     ...(isAdmin ? [adminLink] : []),
   ];
@@ -227,7 +234,7 @@ export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avata
                 )}
               >
                 More
-                {unreadCount > 0 && (
+                {!HIDDEN_MORE_HREFS.has("/messages") && unreadCount > 0 && (
                   <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                 )}
                 <ChevronDown className="h-3.5 w-3.5 transition-transform data-[state=open]:rotate-180" />
