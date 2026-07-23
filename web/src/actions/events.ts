@@ -181,7 +181,12 @@ export async function applyToEventAction(
 ): Promise<EventAttendee> {
   const email = await requireRealUser();
   const event = await getEvent(eventId);
-  if (!event || event.status === "draft" || event.status === "cancelled") {
+  if (
+    !event ||
+    event.status === "draft" ||
+    event.status === "cancelled" ||
+    event.status === "ended"
+  ) {
     throw new Error("This show isn't accepting applications");
   }
   if (!isRegistrationOpen(event)) {

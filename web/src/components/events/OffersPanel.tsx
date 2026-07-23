@@ -57,7 +57,7 @@ export default function OffersPanel({ initialOffers }: Props) {
       setIncoming((prev) =>
         prev.map((o) => (o.id === offer.id ? { ...o, status: "accepted" } : o))
       );
-      toast.success("Offer accepted");
+      toast.success("Offer accepted. Arrange pickup at the show.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to accept offer");
     }
@@ -159,6 +159,11 @@ export default function OffersPanel({ initialOffers }: Props) {
                           </Button>
                         </div>
                       )}
+                      {o.status === "accepted" && (
+                        <span className="text-xs text-muted-foreground">
+                          Arrange pickup with the buyer at the show.
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -212,6 +217,11 @@ export default function OffersPanel({ initialOffers }: Props) {
                         >
                           <Undo2 className="h-3.5 w-3.5" />
                         </Button>
+                      )}
+                      {o.status === "accepted" && (
+                        <span className="text-xs text-muted-foreground">
+                          Accepted. Arrange pickup with the seller.
+                        </span>
                       )}
                     </td>
                   </tr>

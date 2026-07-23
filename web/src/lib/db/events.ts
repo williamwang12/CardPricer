@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import type { Event, EventInput, EventStatus } from "@/lib/types";
+import { withDerivedStatus, isVendorVisibleStatus } from "@/lib/event-status";
 
 const TABLE = "events";
 
@@ -65,7 +66,7 @@ export async function listShowsByCreator(email: string): Promise<Event[]> {
     .eq("created_by", email)
     .order("date", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map((e) => withDerivedStatus(e));
 }
 
 export async function updateEvent(
@@ -88,7 +89,7 @@ export async function getEvent(eventId: number): Promise<Event | null> {
     .eq("id", eventId)
     .single();
   if (error) return null;
-  return data;
+  return withDerivedStatus(data);
 }
 
 /** All events, including unpublished drafts — for admin management. */
@@ -98,10 +99,12 @@ export async function listAllEvents(): Promise<Event[]> {
     .select("*")
     .order("date", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map((e) => withDerivedStatus(e));
 }
 
-/** Public shows only — what vendors browse (approved + live, never pending). */
+/** Public shows only — what vendors browse (upcoming + live, never pending or
+ *  ended). We fetch the stored `published`/`live` rows then re-derive by date,
+ *  dropping shows whose date has passed (derived `ended`). */
 export async function listPublishedEvents(): Promise<Event[]> {
   const { data, error } = await supabase
     .from(TABLE)
@@ -109,5 +112,7 @@ export async function listPublishedEvents(): Promise<Event[]> {
     .in("status", ["published", "live"])
     .order("date", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? [])
+    .map((e) => withDerivedStatus(e))
+    .filter((e) => isVendorVisibleStatus(e.status));
 }

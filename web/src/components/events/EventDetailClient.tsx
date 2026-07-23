@@ -16,7 +16,7 @@ import MarketplaceBrowser from "@/components/events/MarketplaceBrowser";
 import OffersPanel from "@/components/events/OffersPanel";
 import OrganizerPanel from "@/components/events/OrganizerPanel";
 import VendorDirectory from "@/components/events/VendorDirectory";
-import { RegistrationBadge, STATUS_LABELS } from "@/components/events/registration-status";
+import { RegistrationBadge, EventLifecycleBadge, STATUS_LABELS } from "@/components/events/registration-status";
 import type {
   Event,
   EventAttendee,
@@ -233,6 +233,7 @@ export default function EventDetailClient({
               {approvedCount} approved
             </span>
             <Badge variant="outline">{VENUE_LABELS[event.venue_type]}</Badge>
+            <EventLifecycleBadge status={event.status} />
             {status && <RegistrationBadge status={status} />}
           </div>
         </div>

@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { CalendarDays, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { applyToEventAction, cancelRegistrationAction } from "@/actions/events";
-import { RegistrationBadge } from "@/components/events/registration-status";
+import { RegistrationBadge, EventLifecycleBadge } from "@/components/events/registration-status";
 import type { Event, VenueType, RegistrationStatus } from "@/lib/types";
 
 const VENUE_LABELS: Record<VenueType, string> = {
@@ -87,7 +87,10 @@ export default function EventsClient({ initialEvents, statusByEvent }: Props) {
                   <Link href={`/events/${event.id}`} className="font-semibold hover:underline">
                     {event.name}
                   </Link>
-                  {status && <RegistrationBadge status={status} />}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <EventLifecycleBadge status={event.status} />
+                    {status && <RegistrationBadge status={status} />}
+                  </div>
                 </div>
                 <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1.5">
