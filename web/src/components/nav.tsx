@@ -61,7 +61,9 @@ const MORE_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
 
 // Temporarily hidden from the nav while these features are half-baked.
 // Restore an item by removing its href from this set.
-const HIDDEN_MORE_HREFS = new Set<string>(["/events", "/messages", "/feedback"]);
+// Events + Messages restored now that the vendor network is complete;
+// "Suggest Feature" (/feedback) stays hidden.
+const HIDDEN_MORE_HREFS = new Set<string>(["/feedback"]);
 const VISIBLE_MORE_LINKS = MORE_LINKS.filter(
   (l) => !HIDDEN_MORE_HREFS.has(l.href)
 );
