@@ -2,10 +2,85 @@
 
 ## Status
 
-Design only. No code written yet. This doc adapts the "Shows feature (vendor-to-vendor
-v1)" build prompt to the **actual** CardParser web architecture, which differs from
-the prompt's assumptions in fundamental ways. Read "Spec reconciliation" first —
-several pillars of the original prompt do not apply as written.
+**IMPLEMENTED — all 5 slices complete + two lifecycle gaps closed.** As of 2026-07-23
+the whole feature is built and tested (297 unit tests + build green), committed on
+branch **`vendor-network-v1`** (main checkout), **NOT pushed / NOT deployed** — the user
+is testing locally first. See "Implementation progress log" immediately below for the
+authoritative current state before doing anything else. The original design (spec
+reconciliation, data model, authz rules) is preserved further down for reference.
+
+This doc adapts the "Shows feature (vendor-to-vendor v1)" build prompt to the **actual**
+CardParser web architecture, which differs from the prompt's assumptions in fundamental
+ways. Read "Spec reconciliation" (further down) for why several pillars of the original
+prompt do not apply as written.
+
+---
+
+## Implementation progress log
+
+### Where things stand (2026-07-23)
+- **All 5 build slices are DONE** (see "Build order" below): 1 profiles, 2 registration
+  workflow, 3 showcase + directory, 4 messaging, 5 seed + in-app badge (email deferred).
+- **Migration applied** to the production Supabase (incl. the permissive RLS policies —
+  app connects as anon, so every table needs them or reads return 0 / writes 42501).
+- **Branch `vendor-network-v1`** (main checkout). Key commits: `2bfc0d6` (lifecycle +
+  offer UX + seed), `4e3bc2d` (un-hide Events/Messages in nav), `ef22673` (organizer
+  self-application fix). **Not pushed; not deployed.** Merge to `main` to ship (push to
+  main auto-deploys via Vercel git integration; Root Directory must stay `web`).
+- **Local testing:** dev server on **:3001** (NEXTAUTH_URL is localhost:3001, so Google
+  login only works on that port). Seed: `web/scripts/seed-vendor-network.mjs` (idempotent;
+  writes to prod DB). "Events" + "Messages" are back in the nav; "/feedback" stays hidden.
+
+### Work done beyond the original 5 slices (2026-07-23)
+- **Event lifecycle auto-transition.** `web/src/lib/event-status.ts` `deriveEventStatus()`
+  derives `live`/`ended` from `date`/`date_end` (day-granular, UTC "today"); only overrides
+  a stored `published`/`live`, never explicit states (draft/pending/rejected/cancelled/
+  stored-ended). Wired into all `db/events.ts` read paths; `listPublishedEvents` filters
+  out derived-`ended` shows; `applyToEventAction` blocks `ended`. `EventLifecycleBadge`
+  ("Live now" / "Ended") in EventsClient + EventDetailClient. **No cron — derived on read;
+  stored status stays `published`.** `starts_at`/`ends_at` deliberately ignored (mostly
+  unset; avoids tz math). 14 unit tests (`event-status.test.ts`).
+- **Offer settlement = handshake only** (decision 2026-07-23). Accepting an offer still
+  just flips status — no inventory move, no transaction (matches payments-out-of-scope +
+  in-person shows). Added clearer "arrange pickup at the show" toast + row hint in
+  OffersPanel.
+- **Organizer self-application fix** (bug found in testing). An organizer/admin who
+  manages a show is no longer treated as a vendor in it: `applyToEventAction` rejects when
+  the caller `canManageEvent`; `listRegistrationsAction` excludes the show's creator from
+  the applications list; the `/events` browse card shows "Manage show" (not Apply) + no
+  reg badge for shows you organize. Deleted 2 stale self-application rows from prod. +3 tests.
+
+### Decisions locked this session (2026-07-23)
+1. **Offers → handshake only** (no txn, no inventory move). UX made clearer instead.
+2. **Event lifecycle → auto-derive by date** (no organizer buttons, no cron; on-read).
+3. **Email notifications → in-app badge only** (Resend deferred, unchanged from decision #7).
+
+### Known constraint (important for testing)
+**A global admin (`ADMIN_EMAILS`) has `canManageEvent = true` on EVERY show**, so the
+event detail page always renders the OrganizerPanel for them and never the vendor
+marketplace/showcase/offers/messaging view. An admin therefore **cannot experience the
+vendor side** from their own account, and (by the new fix) cannot be a vendor at a show
+they manage. To test the vendor flow: log in with a **non-admin** Google account (apply →
+admin approves → marketplace), or temporarily remove your email from `ADMIN_EMAILS`. The
+seed reflects this: the admin *organizes* the main "Demo:" show; all vendor data lives on
+`@cardparser.demo` accounts.
+
+### Remaining / open (pick up here next time)
+- [ ] **Ship it:** merge `vendor-network-v1` → `main` once local testing passes.
+- [ ] **Clean up seed data** in prod (`DELETE FROM events WHERE name LIKE 'Demo:%'`) before
+      or after launch; the demo shows are currently live in the prod DB.
+- [ ] **`card_offers` has no migration file** in `docs/` — table exists in the DB but the
+      `CREATE TABLE` was never checked in. Add one for schema reproducibility.
+- [ ] **Two divergent admin event-create paths:** `/admin/events` (legacy `published` bool,
+      ignores the `status` enum/approval flow) vs `/events/manage` (status-driven).
+      `togglePublishAction` can leave `status` stale. Consider retiring the legacy path.
+- [ ] **Optional:** let an admin act as a vendor at shows they don't organize (currently the
+      global-admin constraint above blocks it). Only if desired.
+- [ ] **Email notifications (Resend)** — deferred; needs provider + `RESEND_API_KEY` + domain.
+- [ ] **No e2e for authed multi-role flows** (Google OAuth blocks headless auth); coverage is
+      vitest at the server-action layer + manual walkthrough via the seed.
+
+---
 
 ---
 
