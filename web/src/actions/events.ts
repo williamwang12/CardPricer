@@ -180,6 +180,12 @@ export async function applyToEventAction(
   vendorNotes?: string | null
 ): Promise<EventAttendee> {
   const email = await requireRealUser();
+  // The show's organizer (creator or an admin) manages it; they don't apply to
+  // their own show as a vendor. Guard here so a stray click can't create a
+  // self-application that then shows up in their own review queue.
+  if (await canManageEvent(eventId, email)) {
+    throw new Error("You organize this show, so you can't apply to it as a vendor.");
+  }
   const event = await getEvent(eventId);
   if (
     !event ||
@@ -225,7 +231,14 @@ export async function listRegistrationsAction(
   eventId: number
 ): Promise<EventAttendee[]> {
   await requireEventOrganizer(eventId);
-  return listRegistrations(eventId);
+  const [event, regs] = await Promise.all([
+    getEvent(eventId),
+    listRegistrations(eventId),
+  ]);
+  // Never list the show's own organizer as a vendor applicant — they manage
+  // the show, they don't apply to it. Defends against any pre-existing
+  // self-application rows too.
+  return regs.filter((r) => r.user_email !== event?.created_by);
 }
 
 /** Organizer sets a vendor's status (approve/waitlist/reject) + booth. */

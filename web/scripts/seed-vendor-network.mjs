@@ -55,11 +55,6 @@ const VENDORS = [
   { email: "jessie@cardparser.demo", store: "Team Rocket Trades", specialties: ["promos"], city: "Unknown", region: "Kanto", organizer: false, cards: [] }, // waitlisted
 ];
 
-const ADMIN_CARDS = [
-  { name: "Venusaur", number: "15/102", quantity: 1, market_price: 95.0, asking_price: 90.0, is_featured: true },
-  { name: "Alakazam", number: "1/102", quantity: 2, market_price: 22.0, asking_price: 20.0 },
-];
-
 const cardKey = (name, number) => `${name.toLowerCase()}|${number}`;
 
 async function run() {
@@ -129,10 +124,12 @@ async function run() {
   console.log(`  ${events.length} shows created; main show id=${mainShow.id}`);
 
   // ── 4. Attendees for the main show ──────────────────────────────────────
+  // You (ADMIN) are the show's ORGANIZER — you manage it, you're not a vendor
+  // in it (an organizer can't be a vendor at a show they run). All vendors are
+  // demo accounts so you have a full review queue + roster to manage.
   console.log("Registering vendors at the main show…");
   const now = new Date().toISOString();
   const attendees = [
-    { event_id: mainShow.id, user_email: ADMIN, status: "approved", booth_label: "A1", reviewed_at: now, reviewed_by: ADMIN },
     { event_id: mainShow.id, user_email: "ash@cardparser.demo", status: "approved", booth_label: "B2", reviewed_at: now, reviewed_by: ADMIN },
     { event_id: mainShow.id, user_email: "misty@cardparser.demo", status: "approved", booth_label: "B3", reviewed_at: now, reviewed_by: ADMIN },
     { event_id: mainShow.id, user_email: "brock@cardparser.demo", status: "approved", booth_label: "B4", reviewed_at: now, reviewed_by: ADMIN },
@@ -142,31 +139,27 @@ async function run() {
   const { error: atErr } = await sb.from("event_attendees").upsert(attendees, { onConflict: "event_id,user_email" });
   if (atErr) throw atErr;
 
-  // ── 5. Showcase listings ────────────────────────────────────────────────
+  // ── 5. Showcase listings (the approved demo vendors) ────────────────────
   console.log("Publishing showcases…");
-  const listings = [
-    { event_id: mainShow.id, user_email: ADMIN, cards_json: JSON.stringify(ADMIN_CARDS), visibility: "show_vendors", updated_at: now },
-    ...VENDORS.filter((v) => v.cards.length).map((v) => ({
-      event_id: mainShow.id, user_email: v.email, cards_json: JSON.stringify(v.cards), visibility: "show_vendors", updated_at: now,
-    })),
-  ];
+  const listings = VENDORS.filter((v) => v.cards.length).map((v) => ({
+    event_id: mainShow.id, user_email: v.email, cards_json: JSON.stringify(v.cards), visibility: "show_vendors", updated_at: now,
+  }));
   const { error: liErr } = await sb.from("event_listings").upsert(listings, { onConflict: "event_id,user_email" });
   if (liErr) throw liErr;
 
-  // ── 6. Offers (so OffersPanel has incoming + outgoing + accepted) ───────
+  // ── 6. Offers between the demo vendors (pending + accepted) ──────────────
+  // These live in the vendor-side marketplace, which a non-admin vendor login
+  // sees. Kept realistic so a 2nd-account vendor test has ambient activity.
   console.log("Creating offers…");
   const offers = [
-    // ADMIN is BUYER → shows as OUTGOING (pending)
-    { event_id: mainShow.id, seller_email: "ash@cardparser.demo", buyer_email: ADMIN, card_name: "Charizard", card_number: "4/102", card_key: cardKey("Charizard", "4/102"), quantity: 1, offer_amount: 385.0, message: "Would you take 385 cash?", status: "pending", created_at: now },
-    // ADMIN is SELLER → shows as INCOMING (pending)
-    { event_id: mainShow.id, seller_email: ADMIN, buyer_email: "misty@cardparser.demo", card_name: "Venusaur", card_number: "15/102", card_key: cardKey("Venusaur", "15/102"), quantity: 1, offer_amount: 88.0, message: "Interested in your Venusaur!", status: "pending", created_at: now },
-    // ADMIN is SELLER, ACCEPTED → shows as INCOMING (accepted) to test pickup UX
-    { event_id: mainShow.id, seller_email: ADMIN, buyer_email: "brock@cardparser.demo", card_name: "Alakazam", card_number: "1/102", card_key: cardKey("Alakazam", "1/102"), quantity: 1, offer_amount: 20.0, message: "Deal?", status: "accepted", created_at: now, responded_at: now },
+    { event_id: mainShow.id, seller_email: "ash@cardparser.demo", buyer_email: "misty@cardparser.demo", card_name: "Charizard", card_number: "4/102", card_key: cardKey("Charizard", "4/102"), quantity: 1, offer_amount: 385.0, message: "Would you take 385 cash?", status: "pending", created_at: now },
+    { event_id: mainShow.id, seller_email: "brock@cardparser.demo", buyer_email: "ash@cardparser.demo", card_name: "Moltres", card_number: "12/62", card_key: cardKey("Moltres", "12/62"), quantity: 1, offer_amount: 38.0, message: "Trade toward your Blastoise?", status: "pending", created_at: now },
+    { event_id: mainShow.id, seller_email: "misty@cardparser.demo", buyer_email: "brock@cardparser.demo", card_name: "Gyarados", card_number: "6/102", card_key: cardKey("Gyarados", "6/102"), quantity: 1, offer_amount: 52.0, message: "Deal?", status: "accepted", created_at: now, responded_at: now },
   ];
   const { error: ofErr } = await sb.from("card_offers").insert(offers);
   if (ofErr) throw ofErr;
 
-  // ── 7. A message thread (ADMIN <-> ash), unread for ADMIN ───────────────
+  // ── 7. A message thread between two approved demo vendors ────────────────
   console.log("Seeding a message thread…");
   const { data: convo, error: cvErr } = await sb
     .from("conversations")
@@ -175,19 +168,20 @@ async function run() {
     .single();
   if (cvErr) throw cvErr;
   await sb.from("conversation_participants").insert([
-    { conversation_id: convo.id, user_email: ADMIN, last_read_at: null }, // unread → nav badge
+    { conversation_id: convo.id, user_email: "misty@cardparser.demo", last_read_at: null },
     { conversation_id: convo.id, user_email: "ash@cardparser.demo", last_read_at: now },
   ]);
   await sb.from("messages").insert([
-    { conversation_id: convo.id, sender_email: "ash@cardparser.demo", body: "Hey! Saw your Venusaur listing, still available at the show?" },
-    { conversation_id: convo.id, sender_email: "ash@cardparser.demo", body: "Happy to trade my Blastoise toward it." },
+    { conversation_id: convo.id, sender_email: "misty@cardparser.demo", body: "Hey! Saw your Blastoise listing, still available at the show?" },
+    { conversation_id: convo.id, sender_email: "ash@cardparser.demo", body: "Yep, come by booth B2." },
   ]);
 
   console.log("\n✅ Seed complete.");
-  console.log(`   Main show: "${mainShow.name}" (id ${mainShow.id})`);
-  console.log("   You are approved there with 3 other vendors + a pending & waitlisted applicant.");
-  console.log("   OffersPanel: 1 outgoing, 1 incoming pending, 1 incoming accepted.");
-  console.log("   1 unread message thread. 'Demo: Community Center Swap' awaits your admin approval.");
+  console.log(`   Main show: "${mainShow.name}" (id ${mainShow.id}), organized by YOU (${ADMIN}).`);
+  console.log("   As organizer you manage it: 3 approved vendors + 1 pending + 1 waitlisted to review.");
+  console.log("   Vendor-side data (showcases/offers/messages) is on the demo accounts — log in as a");
+  console.log("   non-admin Google account and get approved to experience the vendor marketplace.");
+  console.log("   'Demo: Community Center Swap' (by organizer Brock) awaits your admin approval.");
 }
 
 run().catch((e) => {

@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
   cancelRegistration: vi.fn(),
   getRegistration: vi.fn(),
   reviewRegistration: vi.fn(),
+  listRegistrations: vi.fn(),
   countApprovedAttendees: vi.fn(),
   deleteListing: vi.fn(),
   deleteOffersForListing: vi.fn(),
@@ -47,7 +48,7 @@ vi.mock("@/lib/db/event-attendees", () => ({
   cancelRegistration: h.cancelRegistration,
   getRegistration: h.getRegistration,
   reviewRegistration: h.reviewRegistration,
-  listRegistrations: vi.fn(),
+  listRegistrations: h.listRegistrations,
   listApprovedAttendees: vi.fn(),
   countApprovedAttendees: h.countApprovedAttendees,
   getMyRegistrations: vi.fn(),
@@ -59,6 +60,7 @@ import {
   applyToEventAction,
   cancelRegistrationAction,
   reviewRegistrationAction,
+  listRegistrationsAction,
   createShowAction,
   approveShowAction,
   setOrganizerAction,
@@ -79,6 +81,7 @@ beforeEach(() => {
   h.requireEventOrganizer.mockResolvedValue("owner@gmail.com");
   h.requireAdmin.mockResolvedValue("admin@example.com");
   h.isAdmin.mockReturnValue(false);
+  h.canManageEvent.mockResolvedValue(false);
   h.getEvent.mockResolvedValue(publishedEvent);
   h.getRegistration.mockResolvedValue(null);
   h.countApprovedAttendees.mockResolvedValue(0);
@@ -101,6 +104,17 @@ describe("applyToEventAction", () => {
   it("rejects a cancelled show", async () => {
     h.getEvent.mockResolvedValue({ ...publishedEvent, status: "cancelled" });
     await expect(applyToEventAction(1)).rejects.toThrow(/isn't accepting/);
+  });
+
+  it("rejects an ended show", async () => {
+    h.getEvent.mockResolvedValue({ ...publishedEvent, status: "ended" });
+    await expect(applyToEventAction(1)).rejects.toThrow(/isn't accepting/);
+  });
+
+  it("rejects the show's own organizer applying as a vendor", async () => {
+    h.canManageEvent.mockResolvedValue(true);
+    await expect(applyToEventAction(1)).rejects.toThrow(/organize this show/);
+    expect(h.applyToEvent).not.toHaveBeenCalled();
   });
 
   it("rejects when the registration window has closed", async () => {
@@ -131,6 +145,18 @@ describe("cancelRegistrationAction", () => {
     expect(h.deleteOffersForListing).toHaveBeenCalledWith(1, "vendor@gmail.com");
     expect(h.deleteListing).toHaveBeenCalledWith(1, "vendor@gmail.com");
     expect(h.cancelRegistration).toHaveBeenCalledWith(1, "vendor@gmail.com");
+  });
+});
+
+describe("listRegistrationsAction", () => {
+  it("excludes the show's own organizer from the applications list", async () => {
+    h.getEvent.mockResolvedValue({ ...publishedEvent, created_by: "owner@gmail.com" });
+    h.listRegistrations.mockResolvedValue([
+      { user_email: "owner@gmail.com", status: "pending" },
+      { user_email: "vendor@gmail.com", status: "pending" },
+    ]);
+    const regs = await listRegistrationsAction(1);
+    expect(regs.map((r) => r.user_email)).toEqual(["vendor@gmail.com"]);
   });
 });
 

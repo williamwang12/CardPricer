@@ -29,9 +29,14 @@ function formatDate(dateStr: string) {
 interface Props {
   initialEvents: Event[];
   statusByEvent: Record<number, RegistrationStatus>;
+  currentEmail: string;
 }
 
-export default function EventsClient({ initialEvents, statusByEvent }: Props) {
+export default function EventsClient({
+  initialEvents,
+  statusByEvent,
+  currentEmail,
+}: Props) {
   const [statuses, setStatuses] =
     useState<Record<number, RegistrationStatus>>(statusByEvent);
   const [pending, setPending] = useState<number | null>(null);
@@ -89,7 +94,9 @@ export default function EventsClient({ initialEvents, statusByEvent }: Props) {
                   </Link>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <EventLifecycleBadge status={event.status} />
-                    {status && <RegistrationBadge status={status} />}
+                    {event.created_by !== currentEmail && status && (
+                      <RegistrationBadge status={status} />
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -112,7 +119,12 @@ export default function EventsClient({ initialEvents, statusByEvent }: Props) {
                   </p>
                 )}
                 <div className="flex items-center gap-2 mt-auto pt-2">
-                  {!status || status === "rejected" ? (
+                  {event.created_by === currentEmail ? (
+                    // Organizers manage their own show; they don't apply to it.
+                    <Link href={`/events/${event.id}`}>
+                      <Button size="sm">Manage show</Button>
+                    </Link>
+                  ) : !status || status === "rejected" ? (
                     <Button size="sm" disabled={busy} onClick={() => apply(event)}>
                       Apply to sell
                     </Button>
@@ -130,11 +142,13 @@ export default function EventsClient({ initialEvents, statusByEvent }: Props) {
                       Withdraw
                     </Button>
                   )}
-                  <Link href={`/events/${event.id}`}>
-                    <Button size="sm" variant="ghost">
-                      View
-                    </Button>
-                  </Link>
+                  {event.created_by !== currentEmail && (
+                    <Link href={`/events/${event.id}`}>
+                      <Button size="sm" variant="ghost">
+                        View
+                      </Button>
+                    </Link>
+                  )}
                 </div>
               </div>
             );

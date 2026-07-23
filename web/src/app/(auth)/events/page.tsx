@@ -20,5 +20,11 @@ export default async function EventsPage() {
     if (r.status !== "cancelled") statusByEvent[r.event_id] = r.status;
   }
 
-  return <EventsClient initialEvents={events} statusByEvent={statusByEvent} />;
+  return (
+    <EventsClient
+      initialEvents={events}
+      statusByEvent={statusByEvent}
+      currentEmail={email}
+    />
+  );
 }
