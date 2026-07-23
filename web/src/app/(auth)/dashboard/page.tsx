@@ -6,6 +6,7 @@ import { loadSnapshots } from "@/lib/db/collection-snapshots";
 import { listShows } from "@/lib/db/shows";
 import { loadDashboardData } from "@/lib/db/dashboard";
 import DashboardClient from "@/components/dashboard/DashboardClient";
+import WhatsNewModal from "@/components/dashboard/WhatsNewModal";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -21,5 +22,10 @@ export default async function DashboardPage() {
 
   const data = await loadDashboardData(cards, snapshot, snapshots, shows);
 
-  return <DashboardClient data={data} />;
+  return (
+    <>
+      <WhatsNewModal />
+      <DashboardClient data={data} />
+    </>
+  );
 }
