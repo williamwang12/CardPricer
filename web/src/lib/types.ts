@@ -7,6 +7,7 @@ export interface Card {
   cost_basis: number | null;
   tcgplayer_url: string | null;
   manual_price: boolean;
+  condition: string;
   user_email: string;
 }
 

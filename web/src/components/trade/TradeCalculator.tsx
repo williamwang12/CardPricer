@@ -9,13 +9,16 @@ import {
   ArrowLeftRight,
   Scale,
   Lock,
+  Check,
+  Ban,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useCurrency } from "@/components/currency-context";
-import { searchCardsAction } from "@/actions/catalog";
+import { searchCardsAction, getAllSetsAction } from "@/actions/catalog";
 import { signInWithGoogle } from "@/actions/auth";
+import { parseCatalogQuery } from "@/lib/catalog-search";
 import {
   calculateTradeAction,
   type TradeResponse,
@@ -30,7 +33,7 @@ import {
   liquidityTier,
   type Condition,
 } from "@/lib/trade";
-import type { CatalogCardSearchResult } from "@/lib/db/catalog";
+import type { CatalogCardSearchResult, CatalogSet } from "@/lib/db/catalog";
 
 interface SideItem {
   productId: number;
@@ -47,6 +50,7 @@ interface SideState {
 }
 
 const emptySide = (): SideState => ({ items: [], cash: "" });
+const DEFAULT_RATE = "80";
 
 function scoreColor(score: number): string {
   if (score >= 0.66) return "bg-emerald-500";
@@ -54,21 +58,20 @@ function scoreColor(score: number): string {
   return "bg-red-500";
 }
 
-function tierLabel(score: number): string {
-  const t = liquidityTier(score);
-  return t === "liquid" ? "Liquid" : t === "moderate" ? "Moderate" : "Illiquid";
-}
-
 function SidePanel({
   label,
+  hint,
   side,
   setSide,
   accent,
+  sets,
 }: {
   label: string;
+  hint: string;
   side: SideState;
   setSide: (updater: (s: SideState) => SideState) => void;
   accent: string;
+  sets: CatalogSet[];
 }) {
   const { fmt } = useCurrency();
   const [query, setQuery] = useState("");
@@ -79,8 +82,12 @@ function SidePanel({
   useEffect(() => {
     const q = debounced.trim();
     if (q.length < 2) return;
+    // Smart parse — "Charizard 151" narrows to the set, "Pikachu 58" filters by
+    // card number, same as the Catalog search.
+    const { namePart, matchedSet, numberPart } = parseCatalogQuery(q, sets);
+    if (namePart.trim().length < 2) return;
     let cancelled = false;
-    searchCardsAction(q)
+    searchCardsAction(namePart, matchedSet?.group_id, numberPart ?? undefined)
       .then((r) => {
         if (!cancelled) {
           setResults(r.slice(0, 12));
@@ -91,11 +98,10 @@ function SidePanel({
     return () => {
       cancelled = true;
     };
-  }, [debounced]);
+  }, [debounced, sets]);
 
   const searching = query.trim().length >= 2 && query !== debounced;
-  const showResults =
-    open && query.trim().length >= 2 && results.length > 0;
+  const showResults = open && query.trim().length >= 2 && results.length > 0;
 
   const addCard = useCallback(
     (c: CatalogCardSearchResult) => {
@@ -167,7 +173,10 @@ function SidePanel({
     <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <span className={`h-2.5 w-2.5 rounded-full ${accent}`} />
-        <h2 className="font-heading font-semibold">{label}</h2>
+        <div className="min-w-0">
+          <h2 className="font-heading font-semibold leading-tight">{label}</h2>
+          <p className="text-xs text-muted-foreground">{hint}</p>
+        </div>
         <span className="ml-auto text-sm text-muted-foreground">
           {fmt(cardsTotal + cash)}
         </span>
@@ -315,136 +324,149 @@ function SidePanel({
 function SideTotals({
   label,
   side,
-  highlight,
+  atRate,
 }: {
   label: string;
   side: TradeSideResult;
-  highlight: boolean;
+  atRate?: number; // trade-rate value of the cards, if this is the intake side
 }) {
   const { fmt } = useCurrency();
   return (
-    <div
-      className={`rounded-lg border p-3 ${
-        highlight ? "border-primary bg-primary/5" : "border-border"
-      }`}
-    >
+    <div className="rounded-lg border border-border p-3">
       <p className="text-sm font-medium mb-2">{label}</p>
       <dl className="space-y-1 text-sm">
         <div className="flex justify-between text-muted-foreground">
           <dt>Cards (market)</dt>
           <dd>{fmt(side.cardsValue)}</dd>
         </div>
+        {atRate != null && (
+          <div className="flex justify-between text-muted-foreground">
+            <dt>Cards (at rate)</dt>
+            <dd>{fmt(atRate)}</dd>
+          </div>
+        )}
         <div className="flex justify-between text-muted-foreground">
           <dt>Cash</dt>
           <dd>{fmt(side.cash)}</dd>
         </div>
         <div className="flex justify-between font-semibold pt-1 border-t border-border">
-          <dt>Total</dt>
-          <dd>{fmt(side.total)}</dd>
+          <dt>{atRate != null ? "Value to you" : "Total"}</dt>
+          <dd>{fmt(atRate != null ? atRate + side.cash : side.total)}</dd>
         </div>
-        {side.items.length > 0 && (
-          <div className="flex justify-between text-xs text-muted-foreground pt-0.5">
-            <dt>Card liquidity</dt>
-            <dd className="flex items-center gap-1">
-              <span
-                className={`h-2 w-2 rounded-full ${scoreColor(
-                  side.weightedLiquidity
-                )}`}
-              />
-              {tierLabel(side.weightedLiquidity)}
-            </dd>
-          </div>
-        )}
       </dl>
     </div>
   );
 }
 
-function Verdict({ result }: { result: TradeResult }) {
+function Decision({ result }: { result: TradeResult }) {
   const { fmt } = useCurrency();
-  const { winner, winPct, valueDiff, sideA, sideB } = result;
-
-  let headline: string;
-  let note: string;
-
-  if (winner === "even") {
-    headline = "This looks like an even trade.";
-    const minLiq = Math.min(sideA.weightedLiquidity, sideB.weightedLiquidity);
-    note =
-      minLiq >= 0.66
-        ? "Both sides' cards move quickly, so it's a clean swap."
-        : "Values line up, but check the liquidity flags — some cards may be slower to move.";
-  } else {
-    // The winner receives the other side's cards.
-    const receivedLiq =
-      winner === "A" ? sideB.weightedLiquidity : sideA.weightedLiquidity;
-    const tier = liquidityTier(receivedLiq);
-    headline = `Side ${winner} comes out ahead by ${winPct.toFixed(
-      1
-    )}% (${fmt(valueDiff)}) on market value.`;
-    note =
-      tier === "illiquid"
-        ? `But much of what Side ${winner} receives is in slow-moving cards, so that edge may be hard to cash out — weigh whether you can actually move them before accepting.`
-        : tier === "moderate"
-        ? `The cards Side ${winner} receives have moderate liquidity, so realizing the full value may take some time.`
-        : `And the cards Side ${winner} receives sell readily, so the advantage is real and easy to realize.`;
-  }
-
+  const { shouldDo, margin, tradeRate, effectiveRate } = result;
+  const ratePct = Math.round(tradeRate * 100);
   return (
-    <div className="text-center">
-      <p className="text-lg font-heading font-semibold">
-        {winner === "even" ? (
-          headline
+    <div className="flex flex-col items-center gap-1 text-center">
+      <div
+        className={`flex items-center gap-2 text-2xl font-heading font-bold ${
+          shouldDo ? "text-emerald-600" : "text-red-600"
+        }`}
+      >
+        {shouldDo ? (
+          <Check className="h-6 w-6" />
         ) : (
-          <>
-            <span
-              className={
-                winner === "A" ? "text-blue-600" : "text-purple-600"
-              }
-            >
-              Side {winner}
-            </span>{" "}
-            comes out ahead by {winPct.toFixed(1)}% ({fmt(valueDiff)})
-          </>
+          <Ban className="h-6 w-6" />
         )}
+        {shouldDo ? "Take the trade" : "Pass on this trade"}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        At a {ratePct}% trade rate, you{" "}
+        {shouldDo ? "come out ahead by " : "would overpay by "}
+        <span
+          className={`font-semibold ${
+            shouldDo ? "text-emerald-600" : "text-red-600"
+          }`}
+        >
+          {fmt(Math.abs(margin))}
+        </span>
+        .
       </p>
-      <p className="text-sm text-muted-foreground mt-1">{note}</p>
+      {effectiveRate != null && (
+        <p className="text-sm text-muted-foreground">
+          You&apos;d be paying{" "}
+          <span className="font-medium text-foreground">
+            {Math.round(effectiveRate * 100)}%
+          </span>{" "}
+          of market on their cards (your target is {ratePct}%).
+        </p>
+      )}
+      {result.get.cardsValue > 0 &&
+        (() => {
+          const tier = liquidityTier(result.get.weightedLiquidity);
+          const text =
+            tier === "liquid"
+              ? "The cards you'd take in sell readily — easy to move."
+              : tier === "moderate"
+              ? "The cards you'd take in have moderate liquidity — expect some time to resell."
+              : "Heads up: the cards you'd take in are slow movers, so even at this margin they may sit in your case — factor in resale risk.";
+          return (
+            <p
+              className={`text-sm ${
+                tier === "illiquid" ? "text-amber-600" : "text-muted-foreground"
+              }`}
+            >
+              {text}
+            </p>
+          );
+        })()}
     </div>
   );
 }
 
 export default function TradeCalculator() {
-  const { fmt } = useCurrency();
-  const [sideA, setSideA] = useState<SideState>(emptySide);
-  const [sideB, setSideB] = useState<SideState>(emptySide);
+  const [give, setGive] = useState<SideState>(emptySide);
+  const [get, setGet] = useState<SideState>(emptySide);
+  const [rate, setRate] = useState(DEFAULT_RATE);
   const [response, setResponse] = useState<TradeResponse | null>(null);
   const [calculating, setCalculating] = useState(false);
+  const [sets, setSets] = useState<CatalogSet[]>([]);
+
+  // Loaded once so the search can parse "<card> <set>" / "<card> <number>".
+  useEffect(() => {
+    let cancelled = false;
+    getAllSetsAction()
+      .then((s) => {
+        if (!cancelled) setSets(s);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const canCalculate =
-    sideA.items.length + (parseFloat(sideA.cash || "0") || 0) > 0 &&
-    sideB.items.length + (parseFloat(sideB.cash || "0") || 0) > 0;
+    give.items.length + (parseFloat(give.cash || "0") || 0) > 0 &&
+    get.items.length + (parseFloat(get.cash || "0") || 0) > 0;
 
   const calculate = async () => {
     setCalculating(true);
     setResponse(null);
     try {
       const res = await calculateTradeAction({
-        sideA: {
-          items: sideA.items.map((i) => ({
+        vendorGives: {
+          items: give.items.map((i) => ({
             productId: i.productId,
             quantity: i.quantity,
             condition: i.condition,
           })),
-          cash: parseFloat(sideA.cash) || 0,
+          cash: parseFloat(give.cash) || 0,
         },
-        sideB: {
-          items: sideB.items.map((i) => ({
+        customerGives: {
+          items: get.items.map((i) => ({
             productId: i.productId,
             quantity: i.quantity,
             condition: i.condition,
           })),
-          cash: parseFloat(sideB.cash) || 0,
+          cash: parseFloat(get.cash) || 0,
         },
+        tradeRate: (parseFloat(rate) || 0) / 100,
       });
       setResponse(res);
     } catch {
@@ -455,15 +477,13 @@ export default function TradeCalculator() {
   };
 
   const reset = () => {
-    setSideA(emptySide());
-    setSideB(emptySide());
+    setGive(emptySide());
+    setGet(emptySide());
     setResponse(null);
   };
 
   const result = response?.ok ? response.result : null;
-  const allItems = result
-    ? [...result.sideA.items, ...result.sideB.items]
-    : [];
+  const allItems = result ? [...result.give.items, ...result.get.items] : [];
 
   return (
     <div className="flex flex-col gap-5">
@@ -472,27 +492,47 @@ export default function TradeCalculator() {
         <h1 className="font-heading text-xl font-semibold">Trade Calculator</h1>
       </div>
       <p className="text-sm text-muted-foreground -mt-3">
-        Compares both sides on market value (adjusted for each card&apos;s
-        condition), then flags how liquid the cards are so you know whether that
-        value is easy to realize.
+        Tells you whether to take a trade at your buy rate: their cards count at
+        the trade rate (condition-adjusted), your cards and everyone&apos;s cash
+        count at full value.
       </p>
 
       <div className="grid gap-4 md:grid-cols-2">
         <SidePanel
-          label="Side A"
-          side={sideA}
-          setSide={setSideA}
+          label="You give"
+          hint="Your cards + cash (valued at market)"
+          side={give}
+          setSide={setGive}
           accent="bg-blue-500"
+          sets={sets}
         />
         <SidePanel
-          label="Side B"
-          side={sideB}
-          setSide={setSideB}
+          label="You get"
+          hint="Their cards (at your rate) + cash"
+          side={get}
+          setSide={setGet}
           accent="bg-purple-500"
+          sets={sets}
         />
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Trade rate</span>
+          <div className="relative w-20">
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={rate}
+              onChange={(e) => setRate(e.target.value)}
+              className="pr-6"
+            />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+              %
+            </span>
+          </div>
+        </label>
         <Button onClick={calculate} disabled={!canCalculate || calculating}>
           {calculating ? (
             <>
@@ -502,11 +542,11 @@ export default function TradeCalculator() {
           ) : (
             <>
               <ArrowLeftRight className="h-4 w-4" />
-              Calculate
+              Evaluate trade
             </>
           )}
         </Button>
-        {(response || sideA.items.length > 0 || sideB.items.length > 0) && (
+        {(response || give.items.length > 0 || get.items.length > 0) && (
           <Button variant="ghost" onClick={reset} disabled={calculating}>
             Reset
           </Button>
@@ -514,7 +554,7 @@ export default function TradeCalculator() {
         {response?.ok && (
           <span className="text-sm text-muted-foreground">
             {response.usage.limit - response.usage.used} of{" "}
-            {response.usage.limit} calculations left today
+            {response.usage.limit} left today
           </span>
         )}
       </div>
@@ -542,7 +582,7 @@ export default function TradeCalculator() {
         <div className="rounded-xl border border-border bg-card p-6 text-center">
           <p className="font-heading font-semibold">Daily limit reached</p>
           <p className="text-sm text-muted-foreground mt-1">
-            You&apos;ve used all {response.limit} trade calculations for today.
+            You&apos;ve used all {response.limit} trade evaluations for today.
             Check back tomorrow.
           </p>
         </div>
@@ -551,86 +591,73 @@ export default function TradeCalculator() {
       {/* Error */}
       {response && !response.ok && response.reason === "error" && (
         <p className="text-sm text-red-500">
-          Could not calculate the trade. Please try again.
+          Could not evaluate the trade. Please try again.
         </p>
       )}
 
       {/* Result */}
       {result && (
-        <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-4">
-          <Verdict result={result} />
-
-          {/* Fairness meter */}
-          <div>
-            <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="bg-blue-500"
-                style={{
-                  width: `${
-                    (result.sideA.total /
-                      (result.sideA.total + result.sideB.total || 1)) *
-                    100
-                  }%`,
-                }}
-              />
-              <div
-                className="bg-purple-500"
-                style={{
-                  width: `${
-                    (result.sideB.total /
-                      (result.sideA.total + result.sideB.total || 1)) *
-                    100
-                  }%`,
-                }}
-              />
-            </div>
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>A · {fmt(result.sideA.total)}</span>
-              <span>B · {fmt(result.sideB.total)}</span>
-            </div>
-          </div>
+        <div
+          className={`rounded-xl border p-5 flex flex-col gap-4 ${
+            result.shouldDo
+              ? "border-emerald-500/40 bg-emerald-500/5"
+              : "border-red-500/40 bg-red-500/5"
+          }`}
+        >
+          <Decision result={result} />
 
           <div className="grid gap-3 sm:grid-cols-2">
+            <SideTotals label="You give" side={result.give} />
             <SideTotals
-              label="Side A"
-              side={result.sideA}
-              highlight={result.winner === "A"}
-            />
-            <SideTotals
-              label="Side B"
-              side={result.sideB}
-              highlight={result.winner === "B"}
+              label="You get"
+              side={result.get}
+              atRate={result.tradeRate * result.get.cardsValue}
             />
           </div>
 
-          {/* Per-card liquidity */}
+          {/* Per-card liquidity + the sales sample behind it */}
           {allItems.length > 0 && (
             <div className="pt-1">
-              <p className="text-xs font-medium text-muted-foreground mb-1.5">
-                Card liquidity
+              <p className="text-xs font-medium text-muted-foreground mb-1">
+                Liquidity &amp; recent sales
               </p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="rounded-lg border border-border divide-y divide-border/60">
                 {allItems.map((i, idx) => (
-                  <span
+                  <div
                     key={`${i.productId}-${idx}`}
-                    title={
-                      i.source === "sales"
-                        ? `${i.salesPerDay?.toFixed(1)} sales/day`
-                        : "estimated from price stability"
-                    }
-                    className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs"
+                    className="flex items-center gap-2 px-2.5 py-1.5 text-sm"
                   >
                     <span
-                      className={`h-2 w-2 rounded-full ${scoreColor(i.score)}`}
+                      className={`h-2 w-2 rounded-full flex-shrink-0 ${scoreColor(
+                        i.score
+                      )}`}
                     />
-                    <span className="truncate max-w-[9rem]">{i.name}</span>
-                    <span className="text-muted-foreground">
-                      {conditionShort(i.condition)} · {Math.round(i.score * 100)}
-                      %{i.source === "proxy" ? " est." : ""}
+                    <span className="truncate flex-1 min-w-0">
+                      {i.name}
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        {conditionShort(i.condition)}
+                      </span>
                     </span>
-                  </span>
+                    <span className="text-xs text-muted-foreground text-right flex-shrink-0">
+                      {i.source === "sales" && i.salesPerDay != null ? (
+                        <>
+                          {i.salesPerDay.toFixed(1)}/day · {i.totalQuantity} sold
+                          in {i.windowDays?.toFixed(1)}d
+                        </>
+                      ) : (
+                        <>no recent sales · est.</>
+                      )}
+                    </span>
+                    <span className="w-11 text-right font-medium flex-shrink-0">
+                      {Math.round(i.score * 100)}%
+                    </span>
+                  </div>
                 ))}
               </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Liquidity = recent TCGplayer sales velocity — a check on whether
+                you can actually move the cards you take in.
+              </p>
             </div>
           )}
         </div>

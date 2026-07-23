@@ -55,6 +55,8 @@ async function fetchLatestSales(
 export interface SalesVelocity {
   salesPerDay: number;
   windowDays: number;
+  salesCount: number; // number of sale records in the sample
+  totalQuantity: number; // copies sold across those sales
 }
 
 // Derives sales velocity from the most-recent-sales sample: total quantity
@@ -76,10 +78,15 @@ export async function getSalesVelocity(
   // Clamp the span so a burst of sales in a few minutes doesn't divide by ~0.
   const windowDays = Math.max(spanMs / 86_400_000, 0.25);
 
-  const totalQty = sales.reduce((sum, s) => sum + (s.quantity || 1), 0);
-  const salesPerDay = totalQty / windowDays;
+  const totalQuantity = sales.reduce((sum, s) => sum + (s.quantity || 1), 0);
+  const salesPerDay = totalQuantity / windowDays;
 
-  return { salesPerDay, windowDays };
+  return {
+    salesPerDay,
+    windowDays,
+    salesCount: sales.length,
+    totalQuantity,
+  };
 }
 
 // Maps sales/day to a 0..1 liquidity score. A card selling ~1/day lands at

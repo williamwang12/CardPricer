@@ -9,13 +9,15 @@
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS card_liquidity (
-  product_id    integer PRIMARY KEY,
-  sales_per_day numeric,          -- null when derived from the proxy fallback
-  score         numeric NOT NULL, -- 0..1 liquidity score
-  source        text    NOT NULL DEFAULT 'sales'
-                  CHECK (source IN ('sales','proxy')),
-  window_days   numeric,          -- span of the sales sample, for transparency
-  computed_at   timestamptz NOT NULL DEFAULT now()
+  product_id     integer PRIMARY KEY,
+  sales_per_day  numeric,          -- null when derived from the proxy fallback
+  score          numeric NOT NULL, -- 0..1 liquidity score
+  source         text    NOT NULL DEFAULT 'sales'
+                   CHECK (source IN ('sales','proxy')),
+  window_days    numeric,          -- span (days) of the sales sample
+  sales_count    integer,          -- number of recent sales in the sample
+  total_quantity integer,          -- copies sold across those sales
+  computed_at    timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE card_liquidity ENABLE ROW LEVEL SECURITY;

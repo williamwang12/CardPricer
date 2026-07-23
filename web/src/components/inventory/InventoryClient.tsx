@@ -20,12 +20,19 @@ import {
   deleteCardsAction,
   savePriceAction,
   saveCostBasisAction,
+  setCardConditionAction,
   deleteAllAction,
 } from "@/actions/cards";
 import { useCurrency } from "@/components/currency-context";
 import CardDetailModal from "@/components/catalog/CardDetailModal";
 import type { CardDetailInfo } from "@/components/catalog/CardDetailModal";
 import type { Card } from "@/lib/types";
+import {
+  CONDITIONS,
+  DEFAULT_CONDITION,
+  conditionShort,
+  conditionMultiplier,
+} from "@/lib/trade";
 
 interface CardImageInfo {
   image_url: string | null;
@@ -36,6 +43,8 @@ interface CardImageInfo {
 interface Props {
   initialCards: Card[];
   cardImages: Record<number, CardImageInfo>;
+  /** Condition-adjusted unit prices for non-NM cards, keyed by card id. */
+  conditionedPrices?: Record<number, { price: number; source: string }>;
 }
 
 function EditableCell({
@@ -93,9 +102,14 @@ function EditableCell({
 export default function InventoryClient({
   initialCards,
   cardImages,
+  conditionedPrices = {},
 }: Props) {
   const { fmt } = useCurrency();
   const [cards, setCards] = useState<Card[]>(initialCards);
+  const [condPrices, setCondPrices] =
+    useState<Record<number, { price: number; source: string }>>(
+      conditionedPrices
+    );
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [view, setView] = useState<"table" | "grid">("table");
   const [detailCard, setDetailCard] = useState<CardDetailInfo | null>(null);
@@ -105,9 +119,30 @@ export default function InventoryClient({
   useEffect(() => {
     setCards(initialCards);
   }, [initialCards]);
+  useEffect(() => {
+    setCondPrices(conditionedPrices);
+  }, [conditionedPrices]);
+
+  // Condition-adjusted unit price. Manual-price and Near Mint cards keep their
+  // market price; other conditions use the cached listings price (or a flat
+  // multiplier fallback). This is contained to Inventory — it does not change
+  // market_price, so dashboard/snapshots are unaffected.
+  const unitPrice = useCallback(
+    (card: Card): number | null => {
+      const cond = card.condition ?? DEFAULT_CONDITION;
+      if (card.market_price == null) return null;
+      if (card.manual_price || cond === DEFAULT_CONDITION) {
+        return card.market_price;
+      }
+      const cached = condPrices[card.id];
+      if (cached) return cached.price;
+      return Math.round(card.market_price * conditionMultiplier(cond) * 100) / 100;
+    },
+    [condPrices]
+  );
 
   const totalValue = cards.reduce(
-    (sum, c) => sum + (c.market_price ?? 0) * c.quantity,
+    (sum, c) => sum + (unitPrice(c) ?? 0) * c.quantity,
     0
   );
   const pricedCount = cards.filter((c) => c.market_price != null).length;
@@ -117,8 +152,9 @@ export default function InventoryClient({
     0
   );
   const totalPL = cards.reduce((sum, c) => {
-    if (c.market_price != null && c.cost_basis != null) {
-      return sum + (c.market_price - c.cost_basis) * c.quantity;
+    const up = unitPrice(c);
+    if (up != null && c.cost_basis != null) {
+      return sum + (up - c.cost_basis) * c.quantity;
     }
     return sum;
   }, 0);
@@ -182,6 +218,35 @@ export default function InventoryClient({
       }
     });
   }, []);
+
+  // Set a card's condition, then fetch its condition-adjusted price on demand.
+  const handleConditionChange = useCallback(
+    (card: Card, condition: string) => {
+      setCards((prev) =>
+        prev.map((c) => (c.id === card.id ? { ...c, condition } : c))
+      );
+      startTransition(async () => {
+        try {
+          const res = await setCardConditionAction(card.id, condition);
+          if (res.price != null) {
+            const price = res.price;
+            setCondPrices((prev) => ({
+              ...prev,
+              [card.id]: { price, source: res.source },
+            }));
+          }
+          if (res.limited) {
+            toast(
+              "Daily price-lookup limit reached (10/day) — showing an estimate. The real price updates overnight."
+            );
+          }
+        } catch {
+          toast.error("Failed to save condition");
+        }
+      });
+    },
+    []
+  );
 
   // ── Delete ─────────────────────────────────────────────────────────────────
   const handleDeleteSelected = useCallback(async () => {
@@ -353,8 +418,9 @@ export default function InventoryClient({
         >
           {cards.map((card) => {
             const info = cardImages[card.id];
-            const totalCardValue =
-              card.market_price != null ? card.market_price * card.quantity : null;
+            const up = unitPrice(card);
+            const cond = card.condition ?? DEFAULT_CONDITION;
+            const totalCardValue = up != null ? up * card.quantity : null;
             return (
               <div
                 key={card.id}
@@ -404,7 +470,12 @@ export default function InventoryClient({
                   </p>
                   <div className="mt-auto flex items-baseline justify-between pt-1">
                     <span className="font-mono text-sm font-semibold">
-                      {card.market_price != null ? fmt(card.market_price) : "—"}
+                      {up != null ? fmt(up) : "—"}
+                      {cond !== DEFAULT_CONDITION && (
+                        <span className="ml-1 font-sans text-[10px] font-normal text-muted-foreground">
+                          {conditionShort(cond)}
+                        </span>
+                      )}
                     </span>
                     {totalCardValue != null && card.quantity > 1 && (
                       <span className="text-[11px] font-mono text-muted-foreground">
@@ -475,7 +546,17 @@ export default function InventoryClient({
                           className="w-16"
                         />
                       ) : (
-                        fmt(card.market_price)
+                        <>
+                          {fmt(unitPrice(card) ?? card.market_price)}
+                          {(card.condition ?? DEFAULT_CONDITION) !==
+                            DEFAULT_CONDITION && (
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">
+                              {conditionShort(
+                                card.condition ?? DEFAULT_CONDITION
+                              )}
+                            </span>
+                          )}
+                        </>
                       )
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -483,8 +564,25 @@ export default function InventoryClient({
                   </span>
                   {card.market_price != null && card.quantity > 1 && (
                     <span className="text-muted-foreground font-mono text-xs">
-                      total {fmt(card.market_price * card.quantity)}
+                      total{" "}
+                      {fmt((unitPrice(card) ?? card.market_price) * card.quantity)}
                     </span>
+                  )}
+                  {!card.manual_price && (
+                    <select
+                      value={card.condition ?? DEFAULT_CONDITION}
+                      onChange={(e) =>
+                        handleConditionChange(card, e.target.value)
+                      }
+                      className="h-6 rounded border border-border bg-transparent px-1 text-xs"
+                      aria-label="Condition"
+                    >
+                      {CONDITIONS.map((c) => (
+                        <option key={c.value} value={c.value}>
+                          {c.short}
+                        </option>
+                      ))}
+                    </select>
                   )}
                   <span className="text-muted-foreground">
                     Cost:{" "}
@@ -556,6 +654,9 @@ export default function InventoryClient({
                   <th className="h-10 px-3 text-center font-medium text-muted-foreground w-16">
                     Manual
                   </th>
+                  <th className="h-10 px-3 text-left font-medium text-muted-foreground w-24">
+                    Condition
+                  </th>
                   <th className="h-10 px-3 text-right font-medium text-muted-foreground w-24">
                     Price
                   </th>
@@ -617,6 +718,26 @@ export default function InventoryClient({
                         aria-label="Manual price"
                       />
                     </td>
+                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                      {card.manual_price ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <select
+                          value={card.condition ?? DEFAULT_CONDITION}
+                          onChange={(e) =>
+                            handleConditionChange(card, e.target.value)
+                          }
+                          className="h-7 rounded border border-border bg-transparent px-1 text-xs"
+                          aria-label="Condition"
+                        >
+                          {CONDITIONS.map((c) => (
+                            <option key={c.value} value={c.value}>
+                              {c.short}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right font-mono" onClick={(e) => e.stopPropagation()}>
                       {card.manual_price ? (
                         <EditableCell
@@ -636,7 +757,16 @@ export default function InventoryClient({
                         />
                       ) : (
                         <span className={card.market_price == null ? "text-muted-foreground" : ""}>
-                          {fmt(card.market_price)}
+                          {fmt(unitPrice(card))}
+                          {card.market_price != null &&
+                            (card.condition ?? DEFAULT_CONDITION) !==
+                              DEFAULT_CONDITION && (
+                              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                                {conditionShort(
+                                  card.condition ?? DEFAULT_CONDITION
+                                )}
+                              </span>
+                            )}
                         </span>
                       )}
                     </td>
@@ -659,12 +789,12 @@ export default function InventoryClient({
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-muted-foreground">
                       {card.market_price != null
-                        ? fmt(card.market_price * card.quantity)
+                        ? fmt((unitPrice(card) ?? card.market_price) * card.quantity)
                         : "—"}
                     </td>
                     <td className="px-3 py-2 text-right font-mono">
                       {card.market_price != null && card.cost_basis != null ? (() => {
-                        const pl = (card.market_price - card.cost_basis) * card.quantity;
+                        const pl = ((unitPrice(card) ?? card.market_price) - card.cost_basis) * card.quantity;
                         return (
                           <span className={`font-medium ${pl >= 0 ? "text-green-600" : "text-red-600"}`}>
                             {pl >= 0 ? "+" : ""}{fmt(pl)}

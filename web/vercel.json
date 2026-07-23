@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/auto-snapshot",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/warm-condition-prices",
+      "schedule": "30 6 * * *"
     }
   ]
 }

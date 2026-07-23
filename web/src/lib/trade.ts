@@ -28,6 +28,9 @@ export function conditionShort(condition: string): string {
 // Daily cap on trade calculations per (real) user.
 export const DAILY_TRADE_LIMIT = 10;
 
+// Daily cap on live condition price lookups per user (cache hits don't count).
+export const DAILY_CONDITION_PRICE_LIMIT = 10;
+
 export type LiquidityTier = "liquid" | "moderate" | "illiquid";
 
 export function liquidityTier(score: number): LiquidityTier {

@@ -26,6 +26,7 @@ import {
 import { addCardAction } from "@/actions/cards";
 import { useCurrency } from "@/components/currency-context";
 import { useDebounce } from "@/lib/hooks/use-debounce";
+import { parseCatalogQuery } from "@/lib/catalog-search";
 import { cn } from "@/lib/cn";
 import type {
   CatalogSet,
@@ -53,96 +54,6 @@ function highlightMatch(text: string, query: string) {
       {text.slice(idx + q.length)}
     </>
   );
-}
-
-// Lowercases and strips punctuation so "Scarlet & Violet 151" and "scarlet
-// violet 151" compare equal, and individual words (incl. bare numbers like
-// "151") can be matched as whole words rather than arbitrary substrings.
-function normalizeWords(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-// Given a token list, finds the longest trailing phrase that whole-word
-// matches inside any loaded set's name (e.g. ["Charizard", "151"] matches
-// "Scarlet & Violet 151" at splitAt=1). Tries the longest trailing phrase
-// first (most specific) down to a single trailing word, and always leaves
-// at least one leading token. Returns null if nothing matches.
-function matchTrailingSet(
-  tokens: string[],
-  sets: CatalogSet[]
-): { splitAt: number; matchedSet: CatalogSet } | null {
-  for (let splitAt = 1; splitAt < tokens.length; splitAt++) {
-    const trailingPhrase = normalizeWords(tokens.slice(splitAt).join(" "));
-    if (!trailingPhrase) continue;
-    const match = sets.find((s) =>
-      ` ${normalizeWords(s.group_name)} `.includes(` ${trailingPhrase} `)
-    );
-    if (match) return { splitAt, matchedSet: match };
-  }
-  return null;
-}
-
-// Parses queries like "Charizard 151" into a card-name part ("Charizard")
-// plus a matched set ("Scarlet & Violet 151"), and queries like "Charizard 6"
-// into a name part plus a card-number part ("6"). Handles the ambiguous case
-// where a trailing number could be either a card number OR part of a set's
-// name (e.g. "151" in "Scarlet & Violet 151") by trying, in order:
-//   1. Peel the trailing number off as a *candidate* card number, then look
-//      for a set match in what's left (handles "Charizard 151 6": "6" is
-//      the card number, "151" completes the set name).
-//   2. If that fails, look for a set match using the full token list
-//      including the trailing number (handles "Charizard 151": "151" is
-//      part of the set name, not a card number).
-//   3. If that also fails, fall back to treating the trailing number as a
-//      plain card-number filter with no matched set (handles "Charizard 6"
-//      where no set name contains "6").
-// Falls back to { namePart: query, matchedSet: null, numberPart: null } when
-// nothing matches at all, i.e. today's plain substring-on-name behavior.
-function parseCatalogQuery(
-  query: string,
-  sets: CatalogSet[]
-): { namePart: string; matchedSet: CatalogSet | null; numberPart: string | null } {
-  const tokens = query.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) {
-    return { namePart: "", matchedSet: null, numberPart: null };
-  }
-
-  const lastToken = tokens[tokens.length - 1];
-  const lastIsNumeric = tokens.length > 1 && /^\d{1,4}(\/\d{1,4})?$/.test(lastToken);
-
-  if (lastIsNumeric) {
-    const remaining = tokens.slice(0, -1);
-    const remainingMatch = matchTrailingSet(remaining, sets);
-    if (remainingMatch) {
-      return {
-        namePart: remaining.slice(0, remainingMatch.splitAt).join(" "),
-        matchedSet: remainingMatch.matchedSet,
-        numberPart: lastToken,
-      };
-    }
-  }
-
-  const fullMatch = matchTrailingSet(tokens, sets);
-  if (fullMatch) {
-    return {
-      namePart: tokens.slice(0, fullMatch.splitAt).join(" "),
-      matchedSet: fullMatch.matchedSet,
-      numberPart: null,
-    };
-  }
-
-  if (lastIsNumeric) {
-    return {
-      namePart: tokens.slice(0, -1).join(" "),
-      matchedSet: null,
-      numberPart: lastToken,
-    };
-  }
-
-  return { namePart: query.trim(), matchedSet: null, numberPart: null };
 }
 
 export default function CatalogClient() {

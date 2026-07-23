@@ -10,9 +10,6 @@ import {
 } from "@/lib/db/trade-usage";
 import { conditionMultiplier, DAILY_TRADE_LIMIT } from "@/lib/trade";
 
-// A side is only called "even" within this fraction of the larger side.
-const EVEN_EPSILON = 0.02;
-
 export interface TradeItemInput {
   productId: number;
   quantity: number;
@@ -23,8 +20,12 @@ export interface TradeSideInput {
   cash: number;
 }
 export interface TradeInput {
-  sideA: TradeSideInput;
-  sideB: TradeSideInput;
+  // What the vendor hands over — valued at full market (their cost).
+  vendorGives: TradeSideInput;
+  // What the vendor receives — cards discounted to the trade rate, cash at face.
+  customerGives: TradeSideInput;
+  // Fraction of market the vendor credits for incoming cards (e.g. 0.8 = 80%).
+  tradeRate: number;
 }
 
 export interface TradeItemResult {
@@ -38,6 +39,9 @@ export interface TradeItemResult {
   score: number; // 0..1 liquidity
   source: "sales" | "proxy";
   salesPerDay: number | null;
+  salesCount: number | null;
+  totalQuantity: number | null;
+  windowDays: number | null;
 }
 export interface TradeSideResult {
   items: TradeItemResult[];
@@ -47,11 +51,15 @@ export interface TradeSideResult {
   weightedLiquidity: number; // value-weighted avg liquidity of the cards (0..1)
 }
 export interface TradeResult {
-  sideA: TradeSideResult;
-  sideB: TradeSideResult;
-  winner: "A" | "B" | "even";
-  winPct: number; // how much more market value the winner receives
-  valueDiff: number; // absolute value difference
+  give: TradeSideResult; // vendor's outgoing (market)
+  get: TradeSideResult; // vendor's incoming (customer's cards + cash)
+  tradeRate: number;
+  giveValue: number; // market cost of what the vendor gives
+  getMarketValue: number; // market value of what the vendor receives
+  getAtRate: number; // that intake at the trade rate (cards discounted, cash at face)
+  margin: number; // getAtRate - giveValue; >= 0 → take it
+  shouldDo: boolean;
+  effectiveRate: number | null; // fraction of card market the vendor is paying
 }
 
 export type TradeResponse =
@@ -135,6 +143,9 @@ function buildSide(
       score,
       source: liq?.source ?? "proxy",
       salesPerDay: liq?.salesPerDay ?? null,
+      salesCount: liq?.salesCount ?? null,
+      totalQuantity: liq?.totalQuantity ?? null,
+      windowDays: liq?.windowDays ?? null,
     });
   }
 
@@ -165,8 +176,8 @@ export async function calculateTradeAction(
   }
 
   const productIds = [
-    ...input.sideA.items.map((i) => i.productId),
-    ...input.sideB.items.map((i) => i.productId),
+    ...input.vendorGives.items.map((i) => i.productId),
+    ...input.customerGives.items.map((i) => i.productId),
   ];
 
   const [catalog, liquidity] = await Promise.all([
@@ -174,25 +185,38 @@ export async function calculateTradeAction(
     getLiquidityScores(productIds),
   ]);
 
-  const sideA = buildSide(input.sideA, catalog, liquidity);
-  const sideB = buildSide(input.sideB, catalog, liquidity);
+  const give = buildSide(input.vendorGives, catalog, liquidity);
+  const get = buildSide(input.customerGives, catalog, liquidity);
 
-  const hi = Math.max(sideA.total, sideB.total);
-  const lo = Math.min(sideA.total, sideB.total);
+  const tradeRate = Math.min(1, Math.max(0, input.tradeRate || 0));
 
-  let winner: "A" | "B" | "even";
-  if (hi <= 0 || hi - lo <= hi * EVEN_EPSILON) {
-    winner = "even";
-  } else {
-    winner = sideA.total > sideB.total ? "A" : "B";
-  }
-  const winPct = lo > 0 ? ((hi - lo) / lo) * 100 : winner === "even" ? 0 : 100;
+  // Vendor's cost is full market; intake is the customer's cards at the trade
+  // rate plus their cash at face. Take the trade when intake ≥ cost.
+  const giveValue = give.total;
+  const getMarketValue = get.total;
+  const getAtRate = tradeRate * get.cardsValue + get.cash;
+  const margin = getAtRate - giveValue;
+  const shouldDo = margin >= 0;
+  // What fraction of the incoming cards' market value the vendor actually pays
+  // (net of any cash the customer adds).
+  const effectiveRate =
+    get.cardsValue > 0 ? (giveValue - get.cash) / get.cardsValue : null;
 
   await incrementTradeUsage(email);
 
   return {
     ok: true,
-    result: { sideA, sideB, winner, winPct, valueDiff: hi - lo },
+    result: {
+      give,
+      get,
+      tradeRate,
+      giveValue,
+      getMarketValue,
+      getAtRate,
+      margin,
+      shouldDo,
+      effectiveRate,
+    },
     usage: { used: used + 1, limit: DAILY_TRADE_LIMIT },
   };
 }

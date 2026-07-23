@@ -5,6 +5,10 @@ export interface Liquidity {
   score: number; // 0..1
   salesPerDay: number | null; // null when from proxy
   source: "sales" | "proxy";
+  // Raw sample behind a "sales" score (all null for the proxy fallback).
+  salesCount: number | null;
+  totalQuantity: number | null;
+  windowDays: number | null;
 }
 
 const CACHE_TTL_HOURS = 24;
@@ -27,7 +31,9 @@ async function readCache(
     ).toISOString();
     const { data, error } = await supabase
       .from("card_liquidity")
-      .select("product_id, sales_per_day, score, source, computed_at")
+      .select(
+        "product_id, sales_per_day, score, source, window_days, sales_count, total_quantity, computed_at"
+      )
       .in("product_id", productIds)
       .gte("computed_at", cutoff);
     if (error) return out;
@@ -36,6 +42,10 @@ async function readCache(
         score: Number(r.score),
         salesPerDay: r.sales_per_day != null ? Number(r.sales_per_day) : null,
         source: r.source === "proxy" ? "proxy" : "sales",
+        salesCount: r.sales_count != null ? Number(r.sales_count) : null,
+        totalQuantity:
+          r.total_quantity != null ? Number(r.total_quantity) : null,
+        windowDays: r.window_days != null ? Number(r.window_days) : null,
       });
     }
   } catch {
@@ -51,6 +61,8 @@ async function writeCache(
     score: number;
     source: "sales" | "proxy";
     window_days: number | null;
+    sales_count: number | null;
+    total_quantity: number | null;
   }[]
 ): Promise<void> {
   if (rows.length === 0) return;
@@ -150,6 +162,9 @@ export async function getLiquidityScores(
         score,
         salesPerDay: velocity.salesPerDay,
         source: "sales",
+        salesCount: velocity.salesCount,
+        totalQuantity: velocity.totalQuantity,
+        windowDays: velocity.windowDays,
       });
       toWrite.push({
         product_id: pid,
@@ -157,6 +172,8 @@ export async function getLiquidityScores(
         score,
         source: "sales",
         window_days: velocity.windowDays,
+        sales_count: velocity.salesCount,
+        total_quantity: velocity.totalQuantity,
       });
     } else {
       needProxy.push(pid);
@@ -167,13 +184,22 @@ export async function getLiquidityScores(
     const proxies = await proxyScores(needProxy);
     for (const pid of needProxy) {
       const score = proxies.get(pid) ?? 0.4;
-      result.set(pid, { score, salesPerDay: null, source: "proxy" });
+      result.set(pid, {
+        score,
+        salesPerDay: null,
+        source: "proxy",
+        salesCount: null,
+        totalQuantity: null,
+        windowDays: null,
+      });
       toWrite.push({
         product_id: pid,
         sales_per_day: null,
         score,
         source: "proxy",
         window_days: null,
+        sales_count: null,
+        total_quantity: null,
       });
     }
   }
