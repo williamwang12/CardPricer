@@ -179,24 +179,6 @@ export default function DashboardClient({ data }: Props) {
   const maxSetValue =
     data.valueBySet.length > 0 ? data.valueBySet[0].value : 0;
 
-  if (!hasCards) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-        <h1 className="font-heading text-xl font-semibold">Your collection</h1>
-        <p className="text-sm text-muted-foreground max-w-sm">
-          Import your inventory to see your collection value, price movements,
-          and set breakdown.
-        </p>
-        <Button asChild>
-          <Link href="/import">
-            <Upload className="h-4 w-4" />
-            Import inventory
-          </Link>
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -278,7 +260,7 @@ export default function DashboardClient({ data }: Props) {
           </div>
 
           <Button asChild size="lg" className="mt-auto w-full">
-            <Link href="/export">
+            <Link href="/labels">
               <Download className="h-4 w-4" />
               Export price list
             </Link>
@@ -294,7 +276,7 @@ export default function DashboardClient({ data }: Props) {
               Biggest movers since last export
             </h2>
             <Button variant="ghost" size="sm" asChild>
-              <Link href="/export" className="text-xs">
+              <Link href="/labels" className="text-xs">
                 See all movers
               </Link>
             </Button>
@@ -385,17 +367,32 @@ export default function DashboardClient({ data }: Props) {
         </div>
       )}
 
-      {/* Prompt to export if no snapshot yet */}
-      {!hasSnapshot && (
+      {/* Onboarding prompt when the collection is empty */}
+      {!hasCards ? (
         <div className="rounded-xl border border-dashed p-8 flex flex-col items-center text-center gap-3">
           <p className="text-sm text-muted-foreground max-w-sm">
-            Export your price list to start tracking price changes between
-            sessions.
+            Import your inventory to see your collection value, price movements,
+            and set breakdown.
           </p>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/export">Go to Export</Link>
+          <Button asChild>
+            <Link href="/import">
+              <Upload className="h-4 w-4" />
+              Import inventory
+            </Link>
           </Button>
         </div>
+      ) : (
+        !hasSnapshot && (
+          <div className="rounded-xl border border-dashed p-8 flex flex-col items-center text-center gap-3">
+            <p className="text-sm text-muted-foreground max-w-sm">
+              Export your price list to start tracking price changes between
+              sessions.
+            </p>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/labels">Go to Labels</Link>
+            </Button>
+          </div>
+        )
       )}
     </div>
   );

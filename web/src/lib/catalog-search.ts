@@ -12,6 +12,23 @@ function normalizeWords(text: string): string {
     .trim();
 }
 
+// Card-type qualifiers that appear in card names across every set (e.g.
+// "Gardevoir ex", "Charizard V", "Pikachu VMAX"). They also happen to appear
+// in some set names ("ex Battle Stadium", the EX-era sets, etc.), so a bare
+// trailing qualifier would otherwise be mis-read as a set filter and wrongly
+// pin the search to that one set. When a trailing phrase is composed ONLY of
+// these, it's a card suffix, not a set — leave it in the name part.
+const CARD_QUALIFIERS = new Set([
+  "ex",
+  "gx",
+  "v",
+  "vmax",
+  "vstar",
+  "vunion",
+  "break",
+  "prime",
+]);
+
 // Given a token list, finds the longest trailing phrase that whole-word
 // matches inside any loaded set's name (e.g. ["Charizard", "151"] matches
 // "Scarlet & Violet 151" at splitAt=1). Tries the longest trailing phrase
@@ -24,6 +41,11 @@ function matchTrailingSet(
   for (let splitAt = 1; splitAt < tokens.length; splitAt++) {
     const trailingPhrase = normalizeWords(tokens.slice(splitAt).join(" "));
     if (!trailingPhrase) continue;
+    // Skip phrases that are purely card qualifiers ("ex", "gx v", …) — those
+    // are part of the card name, not a set to filter on.
+    if (trailingPhrase.split(" ").every((w) => CARD_QUALIFIERS.has(w))) {
+      continue;
+    }
     const match = sets.find((s) =>
       ` ${normalizeWords(s.group_name)} `.includes(` ${trailingPhrase} `)
     );

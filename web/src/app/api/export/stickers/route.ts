@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { loadAllCards } from "@/lib/db/cards";
 import { generateStickerPdf } from "@/lib/export/pdf";
+import { applyConditionAdjustedPrices } from "@/lib/db/export-pricing";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -27,8 +28,9 @@ export async function POST(req: NextRequest) {
     ? Buffer.from(logoBase64, "base64")
     : null;
 
+  const pricedCards = await applyConditionAdjustedPrices(cards);
   const pdf = await generateStickerPdf(
-    cards,
+    pricedCards,
     logoBuffer,
     format ?? "avery5167",
     (currency as "USD") ?? "USD",

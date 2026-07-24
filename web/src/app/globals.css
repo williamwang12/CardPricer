@@ -192,3 +192,21 @@ body {
     opacity: 0;
   }
 }
+
+/* ── Labels badge pulse (one-shot, on reprint-queue increase) ───────────── */
+
+@keyframes cp-badge-pulse {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+.cp-badge-pulse {
+  animation: cp-badge-pulse 600ms ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cp-badge-pulse {
+    animation: none;
+  }
+}

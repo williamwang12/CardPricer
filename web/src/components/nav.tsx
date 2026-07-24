@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { Fragment, useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -12,12 +12,8 @@ import {
   Upload,
   BookOpen,
   BarChart3,
-  Download,
-  CalendarDays,
-  Receipt,
+  Tag,
   Store,
-  PackageX,
-  Lightbulb,
   ShieldCheck,
   LogOut,
   Bell,
@@ -28,6 +24,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { signOutAction } from "@/actions/auth";
+import { REPRINT_CHANGED_EVENT } from "@/lib/reprint-queue";
 import { cn } from "@/lib/cn";
 import { useCurrency } from "@/components/currency-context";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
@@ -40,35 +37,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+// Left-hand "places". Labels is rendered separately (it carries the tag icon
+// and the reprint-queue badge); Import is the single accent action button.
 const PRIMARY_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/catalog", label: "Catalog", icon: BookOpen },
-  { href: "/shows", label: "My Shows", icon: Store },
+  { href: "/shows", label: "Shows", icon: Store },
   { href: "/charts", label: "Charts", icon: BarChart3 },
-  { href: "/import", label: "Import", icon: Upload },
-  { href: "/export", label: "Export", icon: Download },
 ];
 
-const MORE_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: "/trade", label: "Trade Calculator", icon: Scale },
-  { href: "/events", label: "Events", icon: CalendarDays },
-  { href: "/messages", label: "Messages", icon: MessagesSquare },
-  { href: "/transactions", label: "Transactions", icon: Receipt },
-  { href: "/dead-inventory", label: "Dead Inventory", icon: PackageX },
-  { href: "/feedback", label: "Suggest Feature", icon: Lightbulb },
-];
-
-// Temporarily hidden from the nav while these features are half-baked.
-// Restore an item by removing its href from this set.
-// Events + Messages restored now that the vendor network is complete;
-// "Suggest Feature" (/feedback) stays hidden.
-const HIDDEN_MORE_HREFS = new Set<string>(["/feedback"]);
-const VISIBLE_MORE_LINKS = MORE_LINKS.filter(
-  (l) => !HIDDEN_MORE_HREFS.has(l.href)
-);
-
-const ALL_LINKS = [...PRIMARY_LINKS, ...VISIBLE_MORE_LINKS];
+const LABELS_LINK = { href: "/labels", label: "Labels", icon: Tag };
 
 interface UpcomingShow {
   id: number;
@@ -127,14 +106,87 @@ function saveSeenShowIds(ids: Set<number>) {
   } catch { /* ignore */ }
 }
 
+/** Reprint-queue count badge. Remounts (via `key`) when pulseKey changes so
+ *  the one-shot CSS animation replays. Hidden entirely when count is 0. */
+function ReprintBadge({
+  count,
+  pulseKey,
+  active,
+  className,
+}: {
+  count: number | null;
+  pulseKey: number;
+  active: boolean;
+  className?: string;
+}) {
+  if (count == null || count <= 0) return null;
+  return (
+    <span
+      key={pulseKey}
+      className={cn(
+        "inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-semibold leading-none",
+        pulseKey > 0 && "cp-badge-pulse",
+        active
+          ? "bg-primary-foreground text-primary"
+          : "bg-primary text-primary-foreground",
+        className
+      )}
+    >
+      {count}
+    </span>
+  );
+}
+
 export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avatarUrl, upcomingShows = [] }: NavProps) {
   const pathname = usePathname();
   // Custom vendor avatar wins over the OAuth image.
   const displayImage = avatarUrl ?? user?.image ?? null;
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const { currency, setCurrency } = useCurrency();
   const [unseenCount, setUnseenCount] = useState(0);
+  const userEmail = user?.email ?? null;
+
+  // ── Reprint-queue badge (single source of truth: /api/reprint-queue) ───────
+  const [reprintCount, setReprintCount] = useState<number | null>(null);
+  const prevCountRef = useRef<number | null>(null);
+  const [pulseKey, setPulseKey] = useState(0);
+
+  const fetchReprintCount = useCallback(() => {
+    if (!userEmail) return;
+    fetch("/api/reprint-queue")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.count === "number") setReprintCount(d.count);
+      })
+      .catch(() => {});
+  }, [userEmail]);
+
+  // Refetch on every navigation (a page change may reflect an import/export).
+  useEffect(() => {
+    fetchReprintCount();
+  }, [pathname, fetchReprintCount]);
+
+  // Refetch when an export/import completes on the current page (no navigation).
+  useEffect(() => {
+    const handler = () => fetchReprintCount();
+    window.addEventListener(REPRINT_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(REPRINT_CHANGED_EVENT, handler);
+  }, [fetchReprintCount]);
+
+  // Pulse once when the count first appears or increases (e.g. after an import).
+  useEffect(() => {
+    if (reprintCount == null) return;
+    const prev = prevCountRef.current;
+    prevCountRef.current = reprintCount;
+    if (prev != null && reprintCount > prev && reprintCount > 0) {
+      const reduce =
+        typeof window !== "undefined" &&
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      // Kicking off the one-shot pulse animation is the point of this effect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!reduce) setPulseKey((k) => k + 1);
+    }
+  }, [reprintCount]);
 
   useEffect(() => {
     const seen = getSeenShowIds();
@@ -152,22 +204,22 @@ export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avata
     setUnseenCount(0);
   }, [upcomingShows]);
 
-  const organizeLink = { href: "/events/manage", label: "Manage Shows", icon: ClipboardList };
-  const adminLink = { href: "/admin/events", label: "Admin", icon: ShieldCheck };
-
-  const moreLinks = [
-    ...VISIBLE_MORE_LINKS,
-    ...(canOrganize ? [organizeLink] : []),
-    ...(isAdmin ? [adminLink] : []),
+  // Former "More" feature pages, redistributed to the avatar menu.
+  const accountLinks: {
+    href: string;
+    label: string;
+    icon: LucideIcon;
+    badge?: number;
+  }[] = [
+    { href: "/messages", label: "Messages", icon: MessagesSquare, badge: unreadCount },
+    { href: "/trade", label: "Trade Calculator", icon: Scale },
+    ...(canOrganize
+      ? [{ href: "/events/manage", label: "Manage Shows", icon: ClipboardList }]
+      : []),
+    ...(isAdmin ? [{ href: "/admin/events", label: "Admin", icon: ShieldCheck }] : []),
   ];
 
-  const allLinks = [
-    ...ALL_LINKS,
-    ...(canOrganize ? [organizeLink] : []),
-    ...(isAdmin ? [adminLink] : []),
-  ];
-
-  const moreIsActive = moreLinks.some((link) => pathname.startsWith(link.href));
+  const labelsActive = pathname.startsWith(LABELS_LINK.href);
 
   const linkClass = (href: string) =>
     cn(
@@ -217,56 +269,51 @@ export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avata
           </span>
         </Link>
 
-        {/* Desktop nav links */}
+        {/* Desktop nav links — Labels sits directly after Inventory */}
         <nav className="hidden sm:flex gap-1 flex-1 items-center">
-          {PRIMARY_LINKS.map((link) => (
-            <Link key={link.href} href={link.href} className={linkClass(link.href)}>
-              {link.label}
-            </Link>
-          ))}
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-sm font-medium transition-all inline-flex items-center gap-1 outline-none",
-                  moreIsActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted data-[state=open]:bg-muted data-[state=open]:text-foreground"
+          {PRIMARY_LINKS.map((link) => {
+            const Icon = link.icon;
+            return (
+              <Fragment key={link.href}>
+                <Link href={link.href} className={linkClass(link.href)}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Icon className="h-3.5 w-3.5" />
+                    {link.label}
+                  </span>
+                </Link>
+                {link.href === "/inventory" && (
+                  /* Labels — carries the reprint badge */
+                  <Link href={LABELS_LINK.href} className={linkClass(LABELS_LINK.href)}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Tag className="h-3.5 w-3.5" />
+                      {LABELS_LINK.label}
+                      <ReprintBadge
+                        count={reprintCount}
+                        pulseKey={pulseKey}
+                        active={labelsActive}
+                        className="ml-0.5"
+                      />
+                    </span>
+                  </Link>
                 )}
-              >
-                More
-                {!HIDDEN_MORE_HREFS.has("/messages") && unreadCount > 0 && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                )}
-                <ChevronDown className="h-3.5 w-3.5 transition-transform data-[state=open]:rotate-180" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
-              {moreLinks.map((link) => {
-                const Icon = link.icon;
-                const active = pathname.startsWith(link.href);
-                const badge = link.href === "/messages" && unreadCount > 0;
-                return (
-                  <DropdownMenuItem key={link.href} asChild>
-                    <Link
-                      href={link.href}
-                      className={cn(active && "bg-accent text-accent-foreground")}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {link.label}
-                      {badge && (
-                        <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
-                          {unreadCount}
-                        </span>
-                      )}
-                    </Link>
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </Fragment>
+            );
+          })}
         </nav>
+
+        {/* Import — the single accent action button */}
+        {user && (
+          <Link
+            href="/import"
+            className={cn(
+              "hidden sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-sm font-medium bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors flex-shrink-0",
+              pathname.startsWith("/import") && "ring-2 ring-primary/40"
+            )}
+          >
+            <Upload className="h-4 w-4" />
+            Import
+          </Link>
+        )}
 
         {/* Desktop currency selector */}
         <div className="hidden sm:block flex-shrink-0">{currencySelect}</div>
@@ -314,7 +361,7 @@ export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avata
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 rounded-full pl-1 pr-2 py-1 outline-none hover:bg-muted transition-colors">
+                <button className="relative flex items-center gap-2 rounded-full pl-1 pr-2 py-1 outline-none hover:bg-muted transition-colors">
                   {displayImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -327,6 +374,9 @@ export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avata
                       {initialsOf(user.name, user.email)}
                     </span>
                   )}
+                  {unreadCount > 0 && (
+                    <span className="absolute top-0 left-6 h-2 w-2 rounded-full bg-primary ring-2 ring-white" />
+                  )}
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               </DropdownMenuTrigger>
@@ -337,6 +387,28 @@ export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avata
                     {user.email}
                   </span>
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {accountLinks.map((link) => {
+                  const Icon = link.icon;
+                  const active = pathname.startsWith(link.href);
+                  const badge = !!link.badge && link.badge > 0;
+                  return (
+                    <DropdownMenuItem key={link.href} asChild>
+                      <Link
+                        href={link.href}
+                        className={cn(active && "bg-accent text-accent-foreground")}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {link.label}
+                        {badge && (
+                          <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                            {link.badge}
+                          </span>
+                        )}
+                      </Link>
+                    </DropdownMenuItem>
+                  );
+                })}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/profile">
@@ -364,14 +436,34 @@ export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avata
           )}
         </div>
 
-        {/* Mobile hamburger */}
-        <button
-          className="sm:hidden ml-auto p-1.5 rounded-lg hover:bg-muted transition-colors"
-          onClick={() => { setMobileOpen((o) => { if (!o && upcomingShows.length > 0) markAllSeen(); return !o; }); }}
-          aria-label="Toggle menu"
-        >
-          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+        {/* Mobile actions — Import stays visible at all widths, plus the menu */}
+        <div className="sm:hidden ml-auto flex items-center gap-2">
+          {user && (
+            <Link
+              href="/import"
+              className={cn(
+                "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-sm font-medium bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors",
+                pathname.startsWith("/import") && "ring-2 ring-primary/40"
+              )}
+            >
+              <Upload className="h-4 w-4" />
+              Import
+            </Link>
+          )}
+          <button
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors relative"
+            onClick={() => { setMobileOpen((o) => { if (!o && upcomingShows.length > 0) markAllSeen(); return !o; }); }}
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {/* Surface the reprint count on the trigger while the menu is closed */}
+            {!mobileOpen && reprintCount != null && reprintCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                {reprintCount}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Mobile drawer */}
@@ -380,50 +472,62 @@ export default function Nav({ user, isAdmin, canOrganize, unreadCount = 0, avata
           {PRIMARY_LINKS.map((link) => {
             const Icon = link.icon;
             return (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setMobileOpen(false)}
-                className={mobileLinkClass(link.href)}
-              >
-                <Icon className="h-4 w-4" />
-                {link.label}
-              </Link>
-            );
-          })}
-          {/* Collapsible "More" section for secondary links */}
-          <button
-            onClick={() => setMobileMoreOpen((o) => !o)}
-            className={cn(
-              "flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full",
-              moreLinks.some((l) => pathname.startsWith(l.href))
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            )}
-          >
-            <ChevronDown className={cn("h-4 w-4 transition-transform", mobileMoreOpen && "rotate-180")} />
-            More
-          </button>
-          {mobileMoreOpen && moreLinks.map((link) => {
-            const Icon = link.icon;
-            const badge = link.href === "/messages" && unreadCount > 0;
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setMobileOpen(false)}
-                className={cn(mobileLinkClass(link.href), "pl-10")}
-              >
-                <Icon className="h-4 w-4" />
-                {link.label}
-                {badge && (
-                  <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
-                    {unreadCount}
-                  </span>
+              <Fragment key={link.href}>
+                <Link
+                  href={link.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={mobileLinkClass(link.href)}
+                >
+                  <Icon className="h-4 w-4" />
+                  {link.label}
+                </Link>
+                {link.href === "/inventory" && (
+                  /* Labels with reprint badge, directly after Inventory */
+                  <Link
+                    href={LABELS_LINK.href}
+                    onClick={() => setMobileOpen(false)}
+                    className={mobileLinkClass(LABELS_LINK.href)}
+                  >
+                    <Tag className="h-4 w-4" />
+                    {LABELS_LINK.label}
+                    <ReprintBadge
+                      count={reprintCount}
+                      pulseKey={pulseKey}
+                      active={labelsActive}
+                      className="ml-auto"
+                    />
+                  </Link>
                 )}
-              </Link>
+              </Fragment>
             );
           })}
+
+          {/* Account links (former More) */}
+          {user && (
+            <div className="mt-2 pt-2 border-t border-border flex flex-col gap-1">
+              {accountLinks.map((link) => {
+                const Icon = link.icon;
+                const badge = !!link.badge && link.badge > 0;
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMobileOpen(false)}
+                    className={mobileLinkClass(link.href)}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {link.label}
+                    {badge && (
+                      <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                        {link.badge}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+
           {/* Mobile upcoming shows */}
           {user && upcomingShows.length > 0 && (
             <div className="mt-2 pt-2 border-t border-border flex flex-col gap-1">

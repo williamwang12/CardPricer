@@ -161,9 +161,9 @@ export default function ShowDetailClient({ show, initialPre, initialPost }: Prop
       done: false, // always available
       action: (
         <Button size="sm" variant="outline" asChild>
-          <Link href="/export">
+          <Link href="/labels">
             <Tag className="h-3.5 w-3.5" />
-            Go to Export
+            Go to Labels
             <ExternalLink className="h-3 w-3" />
           </Link>
         </Button>

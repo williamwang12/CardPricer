@@ -9,11 +9,11 @@ import {
   Square,
   FileSpreadsheet,
   Tag,
-  TrendingUp,
-  Sparkles,
+  Printer,
+  SlidersHorizontal,
   ArrowLeft,
+  Upload,
   Loader2,
-  Calendar,
   ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
@@ -23,6 +23,7 @@ import { useCurrency } from "@/components/currency-context";
 import { cn } from "@/lib/cn";
 import type { Card } from "@/lib/types";
 import type { LabelSnapshot, SnapshotSummary } from "@/lib/db/label-snapshot";
+import { computeReprintQueue, REPRINT_CHANGED_EVENT } from "@/lib/reprint-queue";
 
 type Format = keyof typeof LABEL_FORMATS;
 
@@ -35,6 +36,10 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function plural(n: number, word: string) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
 interface Props {
   cards: Card[];
 }
@@ -42,148 +47,161 @@ interface Props {
 export default function ExportClient({ cards }: Props) {
   const { fmt, currency, rate } = useCurrency();
 
-  // ── Card selection ──────────────────────────────────────────────────────────
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(
-    new Set(cards.map((c) => c.id))
-  );
+  const hasCards = cards.length > 0;
+
+  // ── Scope + selection ─────────────────────────────────────────────────────
+  // Two headline scopes ("changed" / "everything"), plus an optional custom
+  // fine-tuned selection that supersedes the scope when active.
+  const [scope, setScope] = useState<"changed" | "everything">("changed");
+  const [customIds, setCustomIds] = useState<Set<number> | null>(null);
+  const [fineTuneOpen, setFineTuneOpen] = useState(false);
   const [search, setSearch] = useState("");
-
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    if (!q) return cards;
-    return cards.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.number.toLowerCase().includes(q)
-    );
-  }, [cards, search]);
-
-  const allFilteredSelected =
-    filtered.length > 0 && filtered.every((c) => selectedIds.has(c.id));
-
-  const toggleCard = (id: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleAllFiltered = () => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (allFilteredSelected) {
-        filtered.forEach((c) => next.delete(c.id));
-      } else {
-        filtered.forEach((c) => next.add(c.id));
-      }
-      return next;
-    });
-  };
-
-  const uncheckAll = () => setSelectedIds(new Set());
-
   const [minPrice, setMinPrice] = useState(1);
-  const selectAbovePrice = () => {
-    setSelectedIds(
-      new Set(
-        cards
-          .filter((c) => c.market_price != null && c.market_price >= minPrice)
-          .map((c) => c.id)
-      )
-    );
-  };
 
-  const selectedCardIds = Array.from(selectedIds);
-
-  const selectedValue = useMemo(
-    () =>
-      cards
-        .filter((c) => selectedIds.has(c.id))
-        .reduce((sum, c) => sum + (c.market_price ?? 0) * c.quantity, 0),
-    [cards, selectedIds]
-  );
-
-  // ── Export state ────────────────────────────────────────────────────────────
+  // ── Export loading state ──────────────────────────────────────────────────
   const [loadingInventory, setLoadingInventory] = useState(false);
   const [loadingPriceList, setLoadingPriceList] = useState(false);
   const [loadingStickers, setLoadingStickers] = useState(false);
   const [stickerFormat, setStickerFormat] = useState<Format>("avery5167");
 
-  // ── Snapshot state ──────────────────────────────────────────────────────────
+  // ── Snapshot state (most recent snapshot only) ────────────────────────────
+  const [listLoaded, setListLoaded] = useState(false);
   const [snapshotList, setSnapshotList] = useState<SnapshotSummary[]>([]);
   const [selectedSnapshotDate, setSelectedSnapshotDate] = useState<
     string | null
   >(null);
   const [snapshot, setSnapshot] = useState<LabelSnapshot | null>(null);
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
-  const [moverThreshold, setMoverThreshold] = useState(1.0);
-  const [loadingNewcomers, setLoadingNewcomers] = useState(false);
-  const [loadingMovers, setLoadingMovers] = useState(false);
-  const [loadingBoth, setLoadingBoth] = useState(false);
 
-  // Load snapshot list on mount
+  // Load snapshot list on mount, auto-select the most recent.
   useEffect(() => {
     fetch("/api/export/price-list?list=1")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data && Array.isArray(data) && data.length > 0) {
           setSnapshotList(data as SnapshotSummary[]);
-          // Auto-select the most recent snapshot
           setSelectedSnapshotDate(data[0].downloaded_at);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setListLoaded(true));
   }, []);
 
-  // Load the selected snapshot's full data
+  // Load the most recent snapshot's full card list. selectedSnapshotDate only
+  // ever transitions null -> date, so there is no null branch to reset.
   useEffect(() => {
-    if (!selectedSnapshotDate) {
-      setSnapshot(null);
-      return;
-    }
+    if (!selectedSnapshotDate) return;
     setLoadingSnapshot(true);
     fetch(
       `/api/export/price-list?at=${encodeURIComponent(selectedSnapshotDate)}`
     )
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data) setSnapshot(data as LabelSnapshot);
-        else setSnapshot(null);
-      })
+      .then((data) => setSnapshot(data ? (data as LabelSnapshot) : null))
       .catch(() => setSnapshot(null))
       .finally(() => setLoadingSnapshot(false));
   }, [selectedSnapshotDate]);
 
-  const handleDownloadInventory = async () => {
-    setLoadingInventory(true);
-    try {
-      const res = await fetch("/api/export/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds: selectedCardIds, currency, rate }),
-      });
-      if (!res.ok) throw new Error();
-      downloadBlob(await res.blob(), "inventory.xlsx");
-      toast.success("Inventory exported");
-    } catch {
-      toast.error("Failed to export inventory");
-    }
-    setLoadingInventory(false);
+  // ── What changed since the last export ────────────────────────────────────
+  // Shared with the Labels nav badge via computeReprintQueue — one source of
+  // truth so the page count and the badge count always agree.
+  const changedCards = useMemo(
+    () => computeReprintQueue(cards, snapshot?.cards ?? null),
+    [snapshot, cards]
+  );
+
+  const hasSnapshot = snapshotList.length > 0;
+  const settled = listLoaded && !loadingSnapshot;
+  const changedAvailable = hasSnapshot && changedCards.length > 0;
+  const changedDisabled = settled && !changedAvailable;
+
+  // Derive the scope actually in effect: if "only what changed" is unavailable,
+  // fall back to everything without mutating the stored preference.
+  const effectiveScope: "changed" | "everything" =
+    scope === "changed" && changedDisabled ? "everything" : scope;
+  const checkingChanged = effectiveScope === "changed" && !customIds && !settled;
+
+  // ── Effective selection ───────────────────────────────────────────────────
+  const allIdSet = useMemo(() => new Set(cards.map((c) => c.id)), [cards]);
+  const changedIdSet = useMemo(
+    () => new Set(changedCards.map((c) => c.id)),
+    [changedCards]
+  );
+  const effectiveIdSet = customIds
+    ? customIds
+    : effectiveScope === "changed"
+      ? changedIdSet
+      : allIdSet;
+
+  const effectiveCards = useMemo(
+    () => cards.filter((c) => effectiveIdSet.has(c.id)),
+    [cards, effectiveIdSet]
+  );
+  const effectiveCardIds = useMemo(
+    () => effectiveCards.map((c) => c.id),
+    [effectiveCards]
+  );
+
+  // Label rows the NIIMBOT file will contain: one per card per quantity.
+  const labelCount = useMemo(
+    () => effectiveCards.reduce((sum, c) => sum + c.quantity, 0),
+    [effectiveCards]
+  );
+
+  // ── Fine-tune selection helpers (operate on the custom set) ───────────────
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return cards;
+    return cards.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) || c.number.toLowerCase().includes(q)
+    );
+  }, [cards, search]);
+
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((c) => effectiveIdSet.has(c.id));
+
+  const toggleCard = (id: number) => {
+    const base = new Set(customIds ?? effectiveIdSet);
+    if (base.has(id)) base.delete(id);
+    else base.add(id);
+    setCustomIds(base);
   };
 
+  const toggleAllFiltered = () => {
+    const base = new Set(customIds ?? effectiveIdSet);
+    if (allFilteredSelected) filtered.forEach((c) => base.delete(c.id));
+    else filtered.forEach((c) => base.add(c.id));
+    setCustomIds(base);
+  };
+
+  const uncheckAll = () => setCustomIds(new Set());
+
+  const selectAbovePrice = () =>
+    setCustomIds(
+      new Set(
+        cards
+          .filter((c) => c.market_price != null && c.market_price >= minPrice)
+          .map((c) => c.id)
+      )
+    );
+
+  const selectScope = (next: "changed" | "everything") => {
+    setScope(next);
+    setCustomIds(null);
+  };
+
+  // ── Downloads ─────────────────────────────────────────────────────────────
   const handleDownloadPriceList = async () => {
     setLoadingPriceList(true);
     try {
       const res = await fetch("/api/export/price-list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds: selectedCardIds, currency, rate }),
+        body: JSON.stringify({ cardIds: effectiveCardIds, currency, rate }),
       });
       if (!res.ok) throw new Error();
       downloadBlob(await res.blob(), "price_list.xlsx");
-      // Refresh the snapshot list to include the new export
+      // Refresh the snapshot list so "what changed" resets against this export.
       const list = await fetch("/api/export/price-list?list=1").then((r) =>
         r.ok ? r.json() : null
       );
@@ -191,9 +209,14 @@ export default function ExportClient({ cards }: Props) {
         setSnapshotList(list as SnapshotSummary[]);
         setSelectedSnapshotDate(list[0].downloaded_at);
       }
-      toast.success("Price list exported");
+      // Tell the Labels nav badge to refetch — the export just re-snapshotted.
+      window.dispatchEvent(new Event(REPRINT_CHANGED_EVENT));
+      toast.success("Spreadsheet ready", {
+        description:
+          "In NIIMBOT: Import, choose this file, select your label template, then Print all.",
+      });
     } catch {
-      toast.error("Failed to export price list");
+      toast.error("Failed to export labels");
     }
     setLoadingPriceList(false);
   };
@@ -205,7 +228,7 @@ export default function ExportClient({ cards }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cardIds: selectedCardIds,
+          cardIds: effectiveCardIds,
           format: stickerFormat,
           currency,
           rate,
@@ -213,79 +236,40 @@ export default function ExportClient({ cards }: Props) {
       });
       if (!res.ok) throw new Error();
       downloadBlob(await res.blob(), "sticker_sheet.pdf");
-      toast.success("Stickers exported");
+      toast.success("Sticker sheet ready");
     } catch {
       toast.error("Failed to export stickers");
     }
     setLoadingStickers(false);
   };
 
-  // ── Changes computation ─────────────────────────────────────────────────────
-  const { newcomers, priceMovers } = useMemo(() => {
-    if (!snapshot)
-      return { newcomers: [] as Card[], priceMovers: [] as Card[] };
-    const snapLookup = new Map(
-      snapshot.cards.map((c) => [
-        `${c.name.toLowerCase()}|${c.number}`,
-        c.market_price,
-      ])
-    );
-    const snapKeys = new Set(snapLookup.keys());
-    const newcomers = cards.filter(
-      (c) => !snapKeys.has(`${c.name.toLowerCase()}|${c.number}`)
-    );
-    const priceMovers = cards.filter((c) => {
-      const key = `${c.name.toLowerCase()}|${c.number}`;
-      const old = snapLookup.get(key);
-      return (
-        old != null &&
-        c.market_price != null &&
-        Math.abs(c.market_price - old) >= moverThreshold
-      );
-    });
-    return { newcomers, priceMovers };
-  }, [snapshot, cards, moverThreshold]);
-
-  const combined = useMemo(() => {
-    const seen = new Set<string>();
-    return [...newcomers, ...priceMovers].filter((c) => {
-      const key = `${c.id}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [newcomers, priceMovers]);
-
-  const handleDownloadChanges = async (
-    cardIds: number[],
-    filename: string,
-    setLoading: (v: boolean) => void
-  ) => {
-    setLoading(true);
+  const handleDownloadInventory = async () => {
+    setLoadingInventory(true);
     try {
-      const res = await fetch("/api/export/price-list", {
+      const res = await fetch("/api/export/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds, currency, rate }),
+        body: JSON.stringify({ cardIds: effectiveCardIds, currency, rate }),
       });
       if (!res.ok) throw new Error();
-      downloadBlob(await res.blob(), filename);
-      toast.success("Changes exported");
+      downloadBlob(await res.blob(), "inventory.xlsx");
+      toast.success("Inventory spreadsheet ready");
     } catch {
-      toast.error("Failed to export");
+      toast.error("Failed to export inventory");
     }
-    setLoading(false);
+    setLoadingInventory(false);
   };
+
+  const noSelection = effectiveCards.length === 0;
 
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="font-heading text-xl font-semibold">Export</h1>
+          <h1 className="font-heading text-xl font-semibold">Labels</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Download your inventory as spreadsheets, price lists, or printable
-            sticker sheets.
+            Choose where your prices are going.
           </p>
         </div>
         <Button asChild variant="outline">
@@ -296,149 +280,226 @@ export default function ExportClient({ cards }: Props) {
         </Button>
       </div>
 
-      {/* Selection summary bar */}
-      <div className="rounded-xl border bg-card p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
+      {/* Primary: NIIMBOT labels */}
+      <div className="rounded-xl border-2 border-primary bg-card p-5 sm:p-6 flex flex-col gap-4">
+        <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary flex-shrink-0">
-            <FileSpreadsheet className="h-5 w-5" />
+            <Printer className="h-5 w-5" />
           </div>
-          <div>
-            <p className="text-sm font-medium">
-              {selectedIds.size} of {cards.length} cards selected
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Selected value: {fmt(selectedValue)}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-heading text-base font-semibold">
+                NIIMBOT labels
+              </h2>
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary leading-none">
+                Label printing
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              Downloads a spreadsheet for NIIMBOT&apos;s batch print. In the
+              NIIMBOT app: Import, choose the file, pick your template, then
+              Print all.
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={uncheckAll}
-            className="text-xs px-2.5 py-1.5 rounded-md border border-input hover:bg-muted transition-colors"
-          >
-            Uncheck All
-          </button>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={selectAbovePrice}
-              className="text-xs px-2.5 py-1.5 rounded-md border border-input hover:bg-muted transition-colors whitespace-nowrap"
+
+        {!hasCards ? (
+          <div className="rounded-lg border border-dashed p-6 flex flex-col items-center text-center gap-3">
+            <p className="text-sm text-muted-foreground max-w-sm">
+              Import your inventory first to start printing labels.
+            </p>
+            <Button asChild>
+              <Link href="/import">
+                <Upload className="h-4 w-4" />
+                Import your inventory
+              </Link>
+            </Button>
+          </div>
+        ) : (
+          <>
+            {/* Scope selector */}
+            <div className="flex flex-col gap-2">
+              <ScopeOption
+                selected={!customIds && effectiveScope === "changed"}
+                disabled={changedDisabled}
+                onSelect={() => selectScope("changed")}
+                title="Only what changed"
+                subtitle={
+                  checkingChanged
+                    ? "Checking what changed since your last export..."
+                    : !hasSnapshot
+                      ? "After this export, we'll track what changes."
+                      : changedCards.length > 0
+                        ? `${plural(
+                            changedCards.length,
+                            "card"
+                          )} new or moved since your last export`
+                        : "Nothing to reprint. No price moves since your last export."
+                }
+              />
+              <ScopeOption
+                selected={!customIds && effectiveScope === "everything"}
+                onSelect={() => selectScope("everything")}
+                title="Everything"
+                subtitle={`All ${plural(cards.length, "card")} in your inventory`}
+              />
+              {customIds && (
+                <ScopeOption
+                  selected
+                  onSelect={() => {}}
+                  title="Custom"
+                  subtitle={`${plural(customIds.size, "card")} selected`}
+                />
+              )}
+            </div>
+
+            {/* Primary download */}
+            <Button
+              size="lg"
+              className="w-full"
+              onClick={handleDownloadPriceList}
+              disabled={loadingPriceList || noSelection || checkingChanged}
             >
-              Select &ge; ${minPrice}
-            </button>
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={minPrice}
-              onChange={(e) =>
-                setMinPrice(Math.max(0, parseFloat(e.target.value) || 0))
-              }
-              className="h-7 w-16 rounded-md border border-input px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Card selector */}
-      <div className="rounded-xl border">
-        <div className="flex items-center gap-3 px-4 py-3 border-b">
-          <button
-            onClick={toggleAllFiltered}
-            className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-            title={allFilteredSelected ? "Deselect all" : "Select all"}
-          >
-            {allFilteredSelected ? (
-              <CheckSquare className="h-4 w-4" />
-            ) : (
-              <Square className="h-4 w-4" />
-            )}
-          </button>
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search cards..."
-              className="w-full h-8 rounded-md border border-input pl-8 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-          </div>
-        </div>
-        <div className="max-h-56 overflow-y-auto">
-          {filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No cards match
+              {loadingPriceList ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Printer className="h-4 w-4" />
+              )}
+              {loadingPriceList
+                ? "Exporting..."
+                : checkingChanged
+                  ? "Checking what changed..."
+                  : `Export ${plural(labelCount, "label")}`}
+            </Button>
+            <p className="text-xs text-muted-foreground text-center -mt-1">
+              Saves a snapshot, so your next export knows what changed.
             </p>
-          ) : (
-            <table className="w-full text-sm">
-              <tbody>
-                {filtered.map((card) => (
-                  <tr
-                    key={card.id}
-                    className="border-b last:border-0 hover:bg-muted/30 cursor-pointer transition-colors"
-                    onClick={() => toggleCard(card.id)}
-                  >
-                    <td className="px-4 py-1.5 w-10">
+
+            {/* Fine-tune selection */}
+            <div>
+              <button
+                onClick={() => setFineTuneOpen((v) => !v)}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Fine-tune selection
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 transition-transform",
+                    fineTuneOpen && "rotate-180"
+                  )}
+                />
+              </button>
+
+              {fineTuneOpen && (
+                <div className="mt-3 rounded-lg border">
+                  <div className="flex flex-wrap items-center gap-3 px-3 py-2.5 border-b">
+                    <button
+                      onClick={toggleAllFiltered}
+                      className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                      title={allFilteredSelected ? "Deselect all" : "Select all"}
+                    >
+                      {allFilteredSelected ? (
+                        <CheckSquare className="h-4 w-4" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </button>
+                    <div className="relative flex-1 min-w-[10rem] max-w-xs">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                       <input
-                        type="checkbox"
-                        checked={selectedIds.has(card.id)}
-                        onChange={() => toggleCard(card.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="rounded"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search cards..."
+                        className="w-full h-8 rounded-md border border-input pl-8 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                       />
-                    </td>
-                    <td className="py-1.5 pr-3 font-medium">{card.name}</td>
-                    <td className="py-1.5 pr-3 text-muted-foreground w-28">
-                      {card.number || "\u2014"}
-                    </td>
-                    <td className="py-1.5 pr-4 text-right font-mono text-muted-foreground w-20">
-                      {fmt(card.market_price)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={selectAbovePrice}
+                        className="text-xs px-2.5 py-1.5 rounded-md border border-input hover:bg-muted transition-colors whitespace-nowrap"
+                      >
+                        Select &ge; ${minPrice}
+                      </button>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={minPrice}
+                        onChange={(e) =>
+                          setMinPrice(Math.max(0, parseFloat(e.target.value) || 0))
+                        }
+                        className="h-7 w-16 rounded-md border border-input px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <button
+                        onClick={uncheckAll}
+                        className="text-xs px-2.5 py-1.5 rounded-md border border-input hover:bg-muted transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto">
+                    {filtered.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-6">
+                        No cards match
+                      </p>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <tbody>
+                          {filtered.map((card) => (
+                            <tr
+                              key={card.id}
+                              className="border-b last:border-0 hover:bg-muted/30 cursor-pointer transition-colors"
+                              onClick={() => toggleCard(card.id)}
+                            >
+                              <td className="px-3 py-1.5 w-10">
+                                <input
+                                  type="checkbox"
+                                  checked={effectiveIdSet.has(card.id)}
+                                  onChange={() => toggleCard(card.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="rounded"
+                                />
+                              </td>
+                              <td className="py-1.5 pr-3 font-medium">
+                                {card.name}
+                              </td>
+                              <td className="py-1.5 pr-3 text-muted-foreground w-28">
+                                {card.number || "—"}
+                              </td>
+                              <td className="py-1.5 pr-4 text-right font-mono text-muted-foreground w-20">
+                                {fmt(card.market_price)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Export options */}
+      {/* Other exports */}
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Export Formats
+        Other exports
       </h2>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {/* Inventory */}
-        <ExportCard
-          icon={<FileSpreadsheet className="h-5 w-5" />}
-          title="Inventory"
-          description="Full inventory spreadsheet. Cards with market price &le; $1 are excluded."
-          filename="inventory.xlsx"
-          loading={loadingInventory}
-          disabled={selectedIds.size === 0}
-          onDownload={handleDownloadInventory}
-        />
-
-        {/* Label Printer Price List */}
-        <ExportCard
-          icon={<Tag className="h-5 w-5" />}
-          title="Price List"
-          description="One row per card per quantity with prices rounded up. Designed for label printers. Saves a snapshot for tracking changes."
-          filename="price_list.xlsx"
-          loading={loadingPriceList}
-          disabled={selectedIds.size === 0}
-          onDownload={handleDownloadPriceList}
-          featured
-        />
-
-        {/* Stickers */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Avery sticker sheet */}
         <div className="rounded-xl border bg-card p-5 flex flex-col gap-4">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary flex-shrink-0">
               <Tag className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold">Price Stickers</h3>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold">Avery sticker sheet</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Printable price labels for cards with known prices.
+                A ready-to-print PDF for Avery label sheets on a regular
+                printer. No NIIMBOT needed.
               </p>
             </div>
           </div>
@@ -460,7 +521,7 @@ export default function ExportClient({ cards }: Props) {
           </div>
           <Button
             onClick={handleDownloadStickers}
-            disabled={loadingStickers || selectedIds.size === 0}
+            disabled={loadingStickers || noSelection}
             variant="outline"
             className="w-full mt-auto"
           >
@@ -469,275 +530,86 @@ export default function ExportClient({ cards }: Props) {
             ) : (
               <Download className="h-4 w-4" />
             )}
-            {loadingStickers ? "Generating..." : "sticker_sheet.pdf"}
+            {loadingStickers ? "Generating..." : "PDF"}
+          </Button>
+        </div>
+
+        {/* Full inventory spreadsheet */}
+        <div className="rounded-xl border bg-card p-5 flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary flex-shrink-0">
+              <FileSpreadsheet className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold">
+                Full inventory spreadsheet
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Every card and price in one file, for your records, taxes, or
+                working in Excel. Cards priced $1 or under are left out.
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={handleDownloadInventory}
+            disabled={loadingInventory || noSelection}
+            variant="outline"
+            className="w-full mt-auto"
+          >
+            {loadingInventory ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {loadingInventory ? "Generating..." : "Download .xlsx"}
           </Button>
         </div>
       </div>
-
-      {/* Changes Since Download */}
-      {snapshotList.length > 0 && (
-        <>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Changes Since Download
-          </h2>
-          <div className="rounded-xl border bg-card overflow-hidden">
-            {/* Snapshot timeline */}
-            <div className="border-b px-5 py-4 flex flex-col gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary flex-shrink-0">
-                  <Calendar className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-semibold">
-                    Export History
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Select a snapshot to compare against your current inventory.
-                  </p>
-                </div>
-              </div>
-
-              {/* Snapshot selector */}
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Compare against
-                </label>
-                <div className="relative w-full sm:w-80">
-                  <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                  <select
-                    value={selectedSnapshotDate ?? ""}
-                    onChange={(e) =>
-                      setSelectedSnapshotDate(e.target.value || null)
-                    }
-                    className="w-full h-9 rounded-md border border-input pl-8 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-ring bg-white appearance-none"
-                  >
-                    {snapshotList.map((s) => (
-                      <option key={s.downloaded_at} value={s.downloaded_at}>
-                        {formatSnapshotDate(s.downloaded_at)} ({s.card_count}{" "}
-                        cards)
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                </div>
-              </div>
-
-              {/* Snapshot timeline chips (last 5) */}
-              {snapshotList.length > 1 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {snapshotList.slice(0, 8).map((s) => {
-                    const isSelected =
-                      selectedSnapshotDate === s.downloaded_at;
-                    return (
-                      <button
-                        key={s.downloaded_at}
-                        onClick={() =>
-                          setSelectedSnapshotDate(s.downloaded_at)
-                        }
-                        className={cn(
-                          "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                          isSelected
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-input hover:bg-muted"
-                        )}
-                      >
-                        {formatSnapshotDateShort(s.downloaded_at)}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Diff results */}
-            <div className="px-5 py-4 flex flex-col gap-4">
-              {loadingSnapshot ? (
-                <div className="flex items-center justify-center gap-2 py-6">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    Loading snapshot...
-                  </span>
-                </div>
-              ) : snapshot ? (
-                <>
-                  <div className="flex items-center gap-3">
-                    <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                      Price change threshold
-                    </label>
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm text-muted-foreground">$</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        value={moverThreshold}
-                        onChange={(e) =>
-                          setMoverThreshold(
-                            Math.max(0, parseFloat(e.target.value) || 0)
-                          )
-                        }
-                        className="h-8 w-20 rounded-md border border-input px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 text-sm">
-                    <span className="flex items-center gap-1.5">
-                      <Sparkles className="h-3.5 w-3.5 text-blue-500" />
-                      <strong>{newcomers.length}</strong> newcomer(s)
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <TrendingUp className="h-3.5 w-3.5 text-amber-500" />
-                      <strong>{priceMovers.length}</strong> price mover(s)
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={newcomers.length === 0 || loadingNewcomers}
-                      onClick={() =>
-                        handleDownloadChanges(
-                          newcomers.map((c) => c.id),
-                          "newcomers.xlsx",
-                          setLoadingNewcomers
-                        )
-                      }
-                    >
-                      {loadingNewcomers ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Download className="h-3.5 w-3.5" />
-                      )}
-                      Newcomers ({newcomers.length})
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={priceMovers.length === 0 || loadingMovers}
-                      onClick={() =>
-                        handleDownloadChanges(
-                          priceMovers.map((c) => c.id),
-                          "price_movers.xlsx",
-                          setLoadingMovers
-                        )
-                      }
-                    >
-                      {loadingMovers ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Download className="h-3.5 w-3.5" />
-                      )}
-                      Price Movers ({priceMovers.length})
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={combined.length === 0 || loadingBoth}
-                      onClick={() =>
-                        handleDownloadChanges(
-                          combined.map((c) => c.id),
-                          "changes_since_last.xlsx",
-                          setLoadingBoth
-                        )
-                      }
-                    >
-                      {loadingBoth ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Download className="h-3.5 w-3.5" />
-                      )}
-                      Both ({combined.length})
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Could not load this snapshot.
-                </p>
-              )}
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }
 
-// ── Date formatting helpers ──────────────────────────────────────────────────
-function formatSnapshotDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatSnapshotDateShort(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-// ── Reusable export option card ──────────────────────────────────────────────
-function ExportCard({
-  icon,
-  title,
-  description,
-  filename,
-  loading,
+// ── Scope radio option ───────────────────────────────────────────────────────
+function ScopeOption({
+  selected,
   disabled,
-  onDownload,
-  featured,
+  onSelect,
+  title,
+  subtitle,
 }: {
-  icon: React.ReactNode;
+  selected: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
   title: string;
-  description: string;
-  filename: string;
-  loading: boolean;
-  disabled: boolean;
-  onDownload: () => void;
-  featured?: boolean;
+  subtitle: string;
 }) {
   return (
-    <div
-      className={`rounded-xl border bg-card p-5 flex flex-col gap-4 ${
-        featured ? "border-primary ring-1 ring-primary/20" : ""
-      }`}
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      disabled={disabled}
+      onClick={onSelect}
+      className={cn(
+        "flex items-start gap-3 rounded-lg border p-3 text-left transition-colors",
+        selected
+          ? "border-primary bg-primary/5"
+          : "border-input hover:bg-muted/50",
+        disabled && "opacity-50 cursor-not-allowed hover:bg-transparent"
+      )}
     >
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary flex-shrink-0">
-          {icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold">{title}</h3>
-            {featured && (
-              <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground leading-none">
-                Popular
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
-        </div>
-      </div>
-      <Button
-        onClick={onDownload}
-        disabled={loading || disabled}
-        variant={featured ? "default" : "outline"}
-        className="w-full mt-auto"
-      >
-        {loading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Download className="h-4 w-4" />
+      <span
+        className={cn(
+          "mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border",
+          selected ? "border-primary" : "border-muted-foreground/40"
         )}
-        {loading ? "Generating..." : filename}
-      </Button>
-    </div>
+      >
+        {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{title}</span>
+        <span className="block text-xs text-muted-foreground">{subtitle}</span>
+      </span>
+    </button>
   );
 }

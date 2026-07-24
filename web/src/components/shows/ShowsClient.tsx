@@ -217,17 +217,25 @@ export default function ShowsClient({ initialShows, snapshotStatuses }: Props) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="font-heading text-xl font-semibold">My Shows</h1>
+          <h1 className="font-heading text-xl font-semibold">Shows</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Track inventory before and after each show
           </p>
         </div>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          New Show
-        </Button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/events">
+              <CalendarDays className="h-4 w-4" />
+              Browse events
+            </Link>
+          </Button>
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            New Show
+          </Button>
+        </div>
       </div>
 
       {shows.length === 0 ? (

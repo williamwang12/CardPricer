@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { loadAllCards } from "@/lib/db/cards";
 import { exportInventory } from "@/lib/export/excel";
+import { applyConditionAdjustedPrices } from "@/lib/db/export-pricing";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -20,8 +21,9 @@ export async function POST(req: NextRequest) {
     cards = cards.filter((c) => idSet.has(c.id));
   }
 
+  const pricedCards = await applyConditionAdjustedPrices(cards);
   const buf = await exportInventory(
-    cards,
+    pricedCards,
     (currency as "USD") ?? "USD",
     rate ?? 1
   );

@@ -25,6 +25,7 @@ import { upsertCardAction, removeStaleCardsAction, refreshPricesAction } from "@
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { useCurrency } from "@/components/currency-context";
+import { REPRINT_CHANGED_EVENT } from "@/lib/reprint-queue";
 import type { CardInput } from "@/lib/types";
 
 type Tab = "manual" | "tcgplayer" | "decktradr" | "collectr";
@@ -149,6 +150,7 @@ function CsvTab({
     setLastImport(imported);
     setPreview([]);
     if (fileRef.current) fileRef.current.value = "";
+    window.dispatchEvent(new Event(REPRINT_CHANGED_EVENT));
     toast.success(`Imported ${imported.length} card(s)`);
   };
 
@@ -341,6 +343,7 @@ function CollectrTab() {
     setResult({ matched, added, removed });
     setCards([]);
     if (fileRef.current) fileRef.current.value = "";
+    window.dispatchEvent(new Event(REPRINT_CHANGED_EVENT));
     toast.success(
       `Synced: ${matched} updated, ${added} added, ${removed} removed`
     );

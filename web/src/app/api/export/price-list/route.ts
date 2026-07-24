@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { loadAllCards } from "@/lib/db/cards";
 import { exportPriceList } from "@/lib/export/excel";
+import { applyConditionAdjustedPrices } from "@/lib/db/export-pricing";
 import {
   saveSnapshot,
   loadSnapshot,
@@ -53,7 +54,9 @@ export async function POST(req: NextRequest) {
     cards = cards.filter((c) => idSet.has(c.id));
   }
 
-  // Save snapshot of what's being exported
+  // Save snapshot of what's being exported. Snapshots track the base (Near
+  // Mint) market price — the same basis the reprint queue and dashboard diff
+  // against — so this stays on the unadjusted prices.
   await saveSnapshot(
     cards.map((c) => ({
       name: c.name,
@@ -65,8 +68,10 @@ export async function POST(req: NextRequest) {
     /* non-fatal */
   });
 
+  // The exported file uses condition-adjusted prices so it matches Inventory.
+  const pricedCards = await applyConditionAdjustedPrices(cards);
   const buf = await exportPriceList(
-    cards,
+    pricedCards,
     (currency as "USD") ?? "USD",
     rate ?? 1
   );

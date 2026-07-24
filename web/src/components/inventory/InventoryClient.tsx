@@ -11,6 +11,8 @@ import {
   ImageOff,
   Download,
   Upload,
+  Receipt,
+  PackageX,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -339,7 +341,7 @@ export default function InventoryClient({
             </Link>
           </Button>
           <Button asChild>
-            <Link href="/export">
+            <Link href="/labels">
               <Download className="h-4 w-4" />
               Export Labels
             </Link>
@@ -374,6 +376,18 @@ export default function InventoryClient({
               <span className="hidden sm:inline">Cards</span>
             </button>
           </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/transactions">
+              <Receipt className="h-4 w-4" />
+              <span className="hidden sm:inline">Transactions</span>
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/dead-inventory">
+              <PackageX className="h-4 w-4" />
+              <span className="hidden sm:inline">Dead Inventory</span>
+            </Link>
+          </Button>
           {selected.size > 0 && (
             <Button
               variant="destructive"
